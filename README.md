@@ -1,6 +1,7 @@
 # Amidst-GTNH
 
 为原项目Amidst的GTNH特供分支。
+
 *原项目：https://github.com/toolbox4minecraft/amidst
 
 ## 注意事项
