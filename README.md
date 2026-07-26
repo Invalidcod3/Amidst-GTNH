@@ -1,4 +1,5 @@
 
+<<<<<<< HEAD
 ---
 
 >[!IMPORTANT]
@@ -251,3 +252,5 @@ These screenshots are created from the seed 24922 using Amidst v4.0 and Minecraf
 ### Slime Chunks
 
 ![Slime Chunks](https://raw.githubusercontent.com/wiki/toolbox4minecraft/amidst/screenshots/screenshot_default_24922_slime.png)
+=======
+>>>>>>> b23822aba9834cf49b1363cd01a74f63743a6bd6
