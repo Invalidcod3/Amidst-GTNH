@@ -74,7 +74,10 @@ public class Application {
 		selectedLauncherProfile = parameters.getInitialLauncherProfile(minecraftInstallation);
 
 		WorldBuilder worldBuilder = new WorldBuilder(new PlayerInformationCache(), SeedHistoryLogger.from(parameters.seedHistoryFile));
-		launcherProfileRunner = new LauncherProfileRunner(worldBuilder, parameters.getInitialWorldOptions());
+		launcherProfileRunner = new LauncherProfileRunner(
+				worldBuilder,
+				parameters.getInitialWorldOptions(),
+				parameters.getGtnhWorkerSettings());
 		biomeProfileDirectory = BiomeProfileDirectory.create(parameters.biomeProfilesDirectory);
 		versionListProvider = new VersionListProvider(threadMaster.getWorkerExecutor());
 		versions = Version.newLocalVersionList();
@@ -92,7 +95,9 @@ public class Application {
 	 */
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void run() throws MinecraftInterfaceCreationException {
-		UpdatePrompt.from(Amidst.VERSION, threadMaster.getWorkerExecutor(), null, true).check();
+		if (!launcherProfileRunner.isGtnhWorkerEnabled()) {
+			UpdatePrompt.from(Amidst.VERSION, threadMaster.getWorkerExecutor(), null, true).check();
+		}
 
 		if (selectedLauncherProfile.isPresent()) {
 			displayMainWindow(launcherProfileRunner.run(selectedLauncherProfile.get()));
@@ -123,6 +128,7 @@ public class Application {
 	@CalledOnlyBy(AmidstThread.EDT)
 	public MainWindow displayMainWindow(RunningLauncherProfile runningLauncherProfile) {
 		selectedLauncherProfile = Optional.of(runningLauncherProfile.getLauncherProfile());
+		settings.biomeProfileSelection.setRuntimeBiomeColors(runningLauncherProfile.getRuntimeBiomeColors());
 		MainWindow m = new MainWindow(
 				this,
 				settings,

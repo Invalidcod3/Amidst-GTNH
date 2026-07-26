@@ -135,7 +135,7 @@ public class LocalProfileComponent extends ProfileComponent {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void displayModdedMinecraftInfoIfNecessary() {
-		if (!resolvedProfile.isVersionListedInProfile()) {
+		if (!launcherProfileRunner.isGtnhWorkerEnabled() && !resolvedProfile.isVersionListedInProfile()) {
 			String message = "Amidst does not support modded Minecraft versions! Using underlying vanilla Minecraft version "
 					+ resolvedProfile.getVersionId() + " instead.";
 			AmidstLogger.info(message);

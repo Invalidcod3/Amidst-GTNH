@@ -32,7 +32,10 @@ public enum MenuShortcuts implements MenuShortcut {
 	TAKE_SCREENSHOT("menu T"),
 
 	DISPLAY_DIMENSION_OVERWORLD("menu shift 1"),
-	DISPLAY_DIMENSION_END("menu shift 2"),
+	DISPLAY_DIMENSION_NETHER("menu shift 2"),
+	DISPLAY_DIMENSION_END("menu shift 3"),
+	DISPLAY_DIMENSION_TWILIGHT_FOREST("menu shift 4"),
+	DISPLAY_DIMENSION_MOON("menu shift 5"),
 
 	SHOW_SLIME_CHUNKS("menu 1"),
 	SHOW_WORLD_SPAWN("menu 2"),

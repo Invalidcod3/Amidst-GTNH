@@ -231,6 +231,31 @@ public class ViewerFacade {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean hasNetherBiomeLayer() {
+		return world.getNetherBiomeDataOracle().isPresent();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean hasEndBiomeLayer() {
+		return world.getEndBiomeDataOracle().isPresent();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean hasMoonBiomeLayer() {
+		return world.getMoonBiomeDataOracle().isPresent();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean hasTwilightForestBiomeLayer() {
+		return world.getTwilightForestBiomeDataOracle().isPresent();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean hasBiomeLayer(Dimension dimension) {
+		return world.getBiomeDataOracle(dimension).isPresent();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
 	public void openExportDialog() {
 		biomeExporterDialog.createAndShow(world, translator, progressEntryHolder::set);
 	}

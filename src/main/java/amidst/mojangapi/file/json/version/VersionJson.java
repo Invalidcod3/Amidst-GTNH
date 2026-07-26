@@ -16,6 +16,10 @@ public class VersionJson {
 	public VersionJson() {
 	}
 
+	public VersionJson(String id) {
+		this.id = id;
+	}
+
 	public String getId() {
 		return id;
 	}

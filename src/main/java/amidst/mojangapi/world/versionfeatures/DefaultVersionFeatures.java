@@ -2,7 +2,9 @@ package amidst.mojangapi.world.versionfeatures;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -126,6 +128,48 @@ public enum DefaultVersionFeatures {
 					return Optional.empty();
 				}
 			}))
+			.with(FeatureKey.END_BIOME_DATA_ORACLE, VersionFeature.fixed(features -> {
+				MinecraftInterface.WorldAccessor worldAccessor = features.get(WORLD_ACCESSOR);
+				if (worldAccessor.supportedDimensions().contains(Dimension.END)) {
+					return Optional.of(new BiomeDataOracle(
+						worldAccessor,
+						Dimension.END,
+						features.get(FeatureKey.BIOME_LIST),
+						getBiomeOracleConfig(features)
+					));
+				} else {
+					return Optional.empty();
+				}
+			}))
+			.with(FeatureKey.MOON_BIOME_DATA_ORACLE, VersionFeature.fixed(features -> {
+				MinecraftInterface.WorldAccessor worldAccessor = features.get(WORLD_ACCESSOR);
+				if (worldAccessor.supportedDimensions().contains(Dimension.MOON)) {
+					return Optional.of(new BiomeDataOracle(
+						worldAccessor,
+						Dimension.MOON,
+						features.get(FeatureKey.BIOME_LIST),
+						getBiomeOracleConfig(features)
+					));
+				} else {
+					return Optional.empty();
+				}
+			}))
+			.with(FeatureKey.TWILIGHT_FOREST_BIOME_DATA_ORACLE, VersionFeature.fixed(features -> {
+				MinecraftInterface.WorldAccessor worldAccessor = features.get(WORLD_ACCESSOR);
+				if (worldAccessor.supportedDimensions().contains(Dimension.TWILIGHT_FOREST)) {
+					return Optional.of(new BiomeDataOracle(
+						worldAccessor,
+						Dimension.TWILIGHT_FOREST,
+						features.get(FeatureKey.BIOME_LIST),
+						getBiomeOracleConfig(features)
+					));
+				} else {
+					return Optional.empty();
+				}
+			}))
+			.with(
+				FeatureKey.SPACE_BIOME_DATA_ORACLES,
+				VersionFeature.fixed(DefaultVersionFeatures::createSpaceBiomeDataOracles))
 			.with(BIOME_DATA_ORACLE_QUARTER_RES_OVERRIDE, VersionFeature.<Boolean> builder()
 				.init(
 					false
@@ -702,6 +746,34 @@ public enum DefaultVersionFeatures {
 		config.middleOfChunkOffset = features.get(BIOME_DATA_ORACLE_MIDDLE_OF_CHUNK_OFFSET);
 		config.accurateLocationCount = features.get(BIOME_DATA_ORACLE_ACCURATE_LOCATION_COUNT);
 		return config;
+	}
+
+	private static Map<Dimension, Optional<BiomeDataOracle>> createSpaceBiomeDataOracles(
+			VersionFeatures features) {
+		MinecraftInterface.WorldAccessor worldAccessor = features.get(WORLD_ACCESSOR);
+		Map<Dimension, Optional<BiomeDataOracle>> result = new EnumMap<>(Dimension.class);
+		for (Dimension dimension : new Dimension[] {
+				Dimension.MARS,
+				Dimension.ASTEROIDS,
+				Dimension.CERES,
+				Dimension.IO,
+				Dimension.ENCELADUS,
+				Dimension.PROTEUS,
+				Dimension.PLUTO,
+				Dimension.MEHEN_BELT,
+				Dimension.ROSS_128B
+		}) {
+			result.put(
+					dimension,
+					worldAccessor.supportedDimensions().contains(dimension)
+							? Optional.of(new BiomeDataOracle(
+									worldAccessor,
+									dimension,
+									features.get(FeatureKey.BIOME_LIST),
+									getBiomeOracleConfig(features)))
+							: Optional.empty());
+		}
+		return Collections.unmodifiableMap(result);
 	}
 
 	private static List<Integer> getValidBiomesForStrongholdSinceV13w36a(BiomeList biomeList) {

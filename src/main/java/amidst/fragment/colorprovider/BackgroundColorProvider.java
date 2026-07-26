@@ -10,15 +10,20 @@ import amidst.mojangapi.world.biome.BiomeColor;
 public class BackgroundColorProvider implements ColorProvider {
 	private final BiomeColorProvider biomeColorProvider;
 	private final TheEndColorProvider theEndColorProvider;
+	private final boolean hasEndBiomeData;
 
-	public BackgroundColorProvider(BiomeColorProvider biomeColorProvider, TheEndColorProvider theEndColorProvider) {
+	public BackgroundColorProvider(
+			BiomeColorProvider biomeColorProvider,
+			TheEndColorProvider theEndColorProvider,
+			boolean hasEndBiomeData) {
 		this.biomeColorProvider = biomeColorProvider;
 		this.theEndColorProvider = theEndColorProvider;
+		this.hasEndBiomeData = hasEndBiomeData;
 	}
 
 	@Override
 	public int getColorAt(Dimension dimension, Fragment fragment, long cornerX, long cornerY, int x, int y) {
-		if (dimension.equals(Dimension.OVERWORLD)) {
+		if (!dimension.equals(Dimension.END) || hasEndBiomeData) {
 			return biomeColorProvider.getColorAt(dimension, fragment, cornerX, cornerY, x, y);
 		} else if (dimension.equals(Dimension.END)) {
 			return theEndColorProvider.getColorAt(dimension, fragment, cornerX, cornerY, x, y);

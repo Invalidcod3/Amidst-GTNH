@@ -1,8 +1,16 @@
 package amidst.mojangapi.world;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import amidst.documentation.Immutable;
+import amidst.fragment.layer.LayerIds;
+import amidst.gtnh.structure.GtnhRoguelikeDungeonProducers;
+import amidst.gtnh.structure.GtnhSpaceStructureType;
+import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
+import amidst.gtnh.worker.GtnhBiomeCatalogProvider;
 import amidst.mojangapi.file.ImmutablePlayerInformationProvider;
 import amidst.mojangapi.file.PlayerInformationProvider;
 import amidst.mojangapi.file.SaveGame;
@@ -48,6 +56,7 @@ public class WorldBuilder {
 			WorldOptions worldOptions) throws MinecraftInterfaceException {
 		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(worldOptions, minecraftInterface);
 		return create(
+				minecraftInterface,
 				minecraftInterface.getRecognisedVersion(),
 				MovablePlayerList.dummy(),
 				versionFeatures,
@@ -59,6 +68,7 @@ public class WorldBuilder {
 			MinecraftInterfaceException {
 		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(WorldOptions.fromSaveGame(saveGame), minecraftInterface);
 		return create(
+				minecraftInterface,
 				minecraftInterface.getRecognisedVersion(),
 				new MovablePlayerList(
 					playerInformationProvider,
@@ -77,14 +87,79 @@ public class WorldBuilder {
 		}
 		MinecraftInterface.WorldAccessor worldAccessor = new ThreadedWorldAccessor(v -> minecraftInterface.createWorldAccessor(worldOptions));
 		seedHistoryLogger.log(recognisedVersion, worldOptions.getWorldSeed());
-		return DefaultVersionFeatures.builder(worldOptions, worldAccessor).create(recognisedVersion);
+		VersionFeatures.Builder features = DefaultVersionFeatures.builder(worldOptions, worldAccessor);
+		if (minecraftInterface instanceof GtnhBiomeCatalogProvider gtnh) {
+			long seed = worldOptions.getWorldSeed().getLong();
+			features
+					.withValueReplacing(FeatureKey.BIOME_LIST, gtnh.getBiomeList())
+					.withValueReplacing(
+							FeatureKey.ENABLED_LAYERS,
+							createGtnhEnabledLayers(
+									LayerIds.ALPHA,
+									LayerIds.BIOME_DATA,
+									LayerIds.BACKGROUND,
+									LayerIds.GRID,
+									LayerIds.GTNH_ROGUELIKE_DESERT,
+									LayerIds.GTNH_ROGUELIKE_FOREST,
+									LayerIds.GTNH_ROGUELIKE_ICE,
+									LayerIds.GTNH_ROGUELIKE_JUNGLE,
+									LayerIds.GTNH_ROGUELIKE_MESA,
+									LayerIds.GTNH_ROGUELIKE_MOUNTAIN,
+									LayerIds.GTNH_ROGUELIKE_PLAINS,
+									LayerIds.GTNH_ROGUELIKE_SWAMP,
+									LayerIds.GTNH_STRONGHOLD,
+									LayerIds.GTNH_VILLAGE,
+									LayerIds.GTNH_MINESHAFT,
+									LayerIds.GTNH_LOOTGAMES_DUNGEON,
+									LayerIds.GTNH_TINKERS_SLIME_ISLAND,
+									LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON,
+									LayerIds.GTNH_THAUMCRAFT_AURA_NODE,
+									LayerIds.GTNH_THAUMCRAFT_ELDRITCH_ALTAR,
+									LayerIds.GTNH_AE2_METEORITE,
+									LayerIds.GTNH_WORLD_SPAWN,
+									LayerIds.GTNH_NETHER_FORTRESS,
+									LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND,
+									LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE,
+									LayerIds.GTNH_HEE_BIOME_ISLAND,
+									LayerIds.GTNH_HEE_DUNGEON_TOWER,
+									LayerIds.GTNH_DRACONIC_CHAOS_ISLAND,
+									LayerIds.GTNH_MOON_DUNGEON,
+									LayerIds.GTNH_MOON_VILLAGE));
+			if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnhInterface) {
+				features.withValueReplacing(
+						FeatureKey.WORLD_SPAWN_ORACLE,
+						new ImmutableWorldSpawnOracle(gtnhInterface.getWorldSpawn(seed)));
+			}
+		}
+		return features.create(recognisedVersion);
+	}
+
+	private static List<Integer> createGtnhEnabledLayers(Integer... baseLayers) {
+		List<Integer> result = new ArrayList<>(Arrays.asList(baseLayers));
+		for (GtnhTwilightForestFeatureType type :
+				GtnhTwilightForestFeatureType.values()) {
+			result.add(type.getLayerId());
+		}
+		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
+			result.add(type.getLayerId());
+		}
+		return List.copyOf(result);
 	}
 
 	private World create(
+			MinecraftInterface minecraftInterface,
 			RecognisedVersion recognisedVersion,
 			MovablePlayerList movablePlayerList,
 			VersionFeatures versionFeatures,
 			WorldSpawnOracle worldSpawnOracle) throws MinecraftInterfaceException {
+
+		GtnhRoguelikeDungeonProducers gtnhRoguelikeDungeonProducers =
+				minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh
+						? new GtnhRoguelikeDungeonProducers(
+								gtnh,
+								versionFeatures.get(FeatureKey.WORLD_OPTIONS).getWorldSeed().getLong(),
+								worldSpawnOracle.get())
+						: GtnhRoguelikeDungeonProducers.empty();
 
 		return new World(
 				versionFeatures.get(FeatureKey.WORLD_OPTIONS),
@@ -94,6 +169,10 @@ public class WorldBuilder {
 				versionFeatures.get(FeatureKey.ENABLED_LAYERS),
 				versionFeatures.get(FeatureKey.OVERWORLD_BIOME_DATA_ORACLE),
 				versionFeatures.get(FeatureKey.NETHER_BIOME_DATA_ORACLE),
+				versionFeatures.get(FeatureKey.END_BIOME_DATA_ORACLE),
+				versionFeatures.get(FeatureKey.MOON_BIOME_DATA_ORACLE),
+				versionFeatures.get(FeatureKey.TWILIGHT_FOREST_BIOME_DATA_ORACLE),
+				versionFeatures.get(FeatureKey.SPACE_BIOME_DATA_ORACLES),
 				versionFeatures.get(FeatureKey.END_ISLAND_ORACLE),
 				versionFeatures.get(FeatureKey.SLIME_CHUNK_ORACLE),
 				new SpawnProducer(worldSpawnOracle),
@@ -121,6 +200,7 @@ public class WorldBuilder {
 						versionFeatures.get(FeatureKey.NETHER_FORTRESS_PRODUCER),
 						versionFeatures.get(FeatureKey.BASTION_REMNANT_PRODUCER)
 				),
-				versionFeatures.get(FeatureKey.END_CITY_PRODUCER));
+				versionFeatures.get(FeatureKey.END_CITY_PRODUCER),
+				gtnhRoguelikeDungeonProducers);
 	}
 }

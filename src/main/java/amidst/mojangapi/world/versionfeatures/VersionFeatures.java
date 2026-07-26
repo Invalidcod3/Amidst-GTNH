@@ -61,6 +61,15 @@ public class VersionFeatures {
 			return addEntry(key, new Entry<>(Objects.requireNonNull(value)));
 		}
 
+		public<T> Builder withValueReplacing(FeatureKey<T> key, T value) {
+			Objects.requireNonNull(key);
+			if (!features.containsKey(key)) {
+				throw new IllegalArgumentException("cannot replace unknown feature " + key);
+			}
+			features.put(key, new Entry<>(Objects.requireNonNull(value)));
+			return this;
+		}
+
 		@Override
 		public Builder clone() {
 			return new Builder(this);

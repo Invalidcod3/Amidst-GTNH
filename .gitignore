@@ -13,6 +13,9 @@
 /logs
 /nbproject
 /build
+/gtnh-worker/.gradle
+/gtnh-worker/build
+/gtnh-worker/run
 
 history.txt
 target/

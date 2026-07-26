@@ -9,37 +9,101 @@ public enum Dimension {
 	// @formatter:off
 	NETHER(  -1, "minecraft:the_nether"	, "Nether",    Resolution.NETHER),
 	OVERWORLD(0, "minecraft:overworld",   "Overworld", Resolution.WORLD),
-	END(      1, "minecraft:the_end",     "End",       Resolution.WORLD);
+	END(      1, "minecraft:the_end",     "End",       Resolution.WORLD),
+	MOON(
+			-28,
+			"galacticraftcore:moon",
+			"Moon",
+			Resolution.WORLD),
+	MARS(
+			-29,
+			"galacticraftmars:mars",
+			"Mars",
+			Resolution.WORLD),
+	ASTEROIDS(
+			-30,
+			"galacticraftasteroids:asteroids",
+			"Asteroids",
+			Resolution.WORLD),
+	CERES(
+			-1007,
+			"galaxyspace:ceres",
+			"Ceres",
+			Resolution.WORLD),
+	IO(
+			-1013,
+			"galaxyspace:io",
+			"Io",
+			Resolution.WORLD),
+	ENCELADUS(
+			-1016,
+			"galaxyspace:enceladus",
+			"Enceladus",
+			Resolution.WORLD),
+	PROTEUS(
+			-1019,
+			"galaxyspace:proteus",
+			"Proteus (海卫八)",
+			Resolution.WORLD),
+	PLUTO(
+			-1008,
+			"galaxyspace:pluto",
+			"Pluto",
+			Resolution.WORLD),
+	MEHEN_BELT(
+			25,
+			"amunra:asteroidbeltmehen",
+			"Mehen Belt",
+			Resolution.WORLD),
+	ROSS_128B(
+			64,
+			"bartworks:ross128b",
+			"Ross 128b",
+			Resolution.WORLD),
+	TWILIGHT_FOREST(
+			 7,
+			"twilightforest:twilight_forest",
+			"Twilight Forest",
+			Resolution.WORLD);
 	// @formatter:on
 
 	public static Dimension fromId(int id) {
-		if (id == NETHER.getId()) {
-			return NETHER;
-		} else if (id == OVERWORLD.getId()) {
-			return OVERWORLD;
-		} else if (id == END.getId()) {
-			return END;
-		} else {
-			AmidstLogger.warn("Unsupported dimension id: {}. Falling back to Overworld.", id);
-			return OVERWORLD;
+		for (Dimension dimension : values()) {
+			if (id == dimension.getId()) {
+				return dimension;
+			}
 		}
+		AmidstLogger.warn("Unsupported dimension id: {}. Falling back to Overworld.", id);
+		return OVERWORLD;
 	}
 
 	public static Dimension fromName(String name) {
-		if (NETHER.getName().equals(name)) {
-			return NETHER;
-		} else if (OVERWORLD.getName().equals(name)) {
-			return OVERWORLD;
-		} else if (END.getName().equals(name)) {
-			return END;
-		} else {
-			AmidstLogger.warn("Unsupported dimension name: {}. Falling back to Overworld.", name);
-			return OVERWORLD;
+		for (Dimension dimension : values()) {
+			if (dimension.getName().equals(name)) {
+				return dimension;
+			}
 		}
+		AmidstLogger.warn("Unsupported dimension name: {}. Falling back to Overworld.", name);
+		return OVERWORLD;
 	}
 
 	public static String[] getSelectable() {
-		return new String[] { OVERWORLD.getDisplayName(), END.getDisplayName() };
+		return new String[] {
+				OVERWORLD.getDisplayName(),
+				NETHER.getDisplayName(),
+				END.getDisplayName(),
+				MOON.getDisplayName(),
+				MARS.getDisplayName(),
+				ASTEROIDS.getDisplayName(),
+				CERES.getDisplayName(),
+				IO.getDisplayName(),
+				ENCELADUS.getDisplayName(),
+				PROTEUS.getDisplayName(),
+				PLUTO.getDisplayName(),
+				MEHEN_BELT.getDisplayName(),
+				ROSS_128B.getDisplayName(),
+				TWILIGHT_FOREST.getDisplayName()
+		};
 	}
 
 	private final int id;

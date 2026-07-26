@@ -19,6 +19,7 @@ public class LayerManager {
 	private final List<LayerDeclaration> declarations;
 	private final LayerLoader layerLoader;
 	private final Iterable<FragmentDrawer> drawers;
+	private Dimension currentDimension;
 
 	public LayerManager(
 			List<LayerDeclaration> declarations,
@@ -31,6 +32,8 @@ public class LayerManager {
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public boolean updateAll(Dimension dimension) {
+		boolean dimensionChanged = currentDimension != null && currentDimension != dimension;
+		currentDimension = dimension;
 		for (LayerDeclaration declaration : declarations) {
 			if (declaration.update(dimension)) {
 				int layerId = declaration.getLayerId();
@@ -39,6 +42,15 @@ public class LayerManager {
 				}
 				invalidateLayer(layerId);
 			}
+		}
+		if (dimensionChanged) {
+			/*
+			 * Overworld and Nether share the fragment biome buffer, but use
+			 * different oracles. Force that buffer and its rendered image to
+			 * refresh whenever the displayed dimension changes.
+			 */
+			invalidateLayer(LayerIds.BIOME_DATA);
+			invalidateLayer(LayerIds.BACKGROUND);
 		}
 		return invalidationOperations.processTasks();
 	}

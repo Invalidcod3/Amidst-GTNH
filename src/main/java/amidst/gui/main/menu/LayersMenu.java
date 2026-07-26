@@ -15,6 +15,13 @@ import amidst.documentation.AmidstThread;
 import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.NotThreadSafe;
 import amidst.fragment.layer.LayerIds;
+import amidst.gtnh.structure.GtnhRoguelikeDungeonType;
+import amidst.gtnh.structure.GtnhOverworldStructureType;
+import amidst.gtnh.structure.GtnhNetherStructureType;
+import amidst.gtnh.structure.GtnhEndStructureType;
+import amidst.gtnh.structure.GtnhMoonStructureType;
+import amidst.gtnh.structure.GtnhSpaceStructureType;
+import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
 import amidst.gui.main.viewer.ViewerFacade;
 import amidst.mojangapi.world.Dimension;
 import amidst.settings.Setting;
@@ -57,10 +64,31 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createDimensionLayers(Dimension dimension) {
-		if (viewerFacade.hasLayer(LayerIds.END_ISLANDS)) {
-			createAllDimensions();
+		boolean hasNether = viewerFacade.hasNetherBiomeLayer();
+		boolean hasEnd = viewerFacade.hasEndBiomeLayer()
+				|| viewerFacade.hasLayer(LayerIds.END_ISLANDS);
+		boolean hasMoon = viewerFacade.hasMoonBiomeLayer();
+		boolean hasTwilightForest = viewerFacade.hasTwilightForestBiomeLayer();
+		boolean supportedDimension = dimension == Dimension.OVERWORLD
+				|| (dimension == Dimension.NETHER && hasNether)
+				|| (dimension == Dimension.END && hasEnd)
+				|| (dimension == Dimension.MOON && hasMoon)
+				|| (dimension == Dimension.TWILIGHT_FOREST && hasTwilightForest)
+				|| viewerFacade.hasBiomeLayer(dimension);
+		if (!supportedDimension) {
+			dimensionSetting.set(Dimension.OVERWORLD);
+			return;
+		}
+		boolean hasAlternativeDimension =
+				hasNether || hasEnd || hasMoon || hasTwilightForest;
+		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
+			hasAlternativeDimension |= viewerFacade.hasBiomeLayer(type.getDimension());
+		}
+		if (hasAlternativeDimension) {
+			createDimensionMenu();
 			menu.addSeparator();
-			createOverworldAndEndLayers(dimension);
+			createAllDimensions();
+			createSelectedDimensionLayers(dimension);
 		} else if (!dimension.equals(Dimension.OVERWORLD)) {
 			dimensionSetting.set(Dimension.OVERWORLD);
 		} else {
@@ -71,15 +99,160 @@ public class LayersMenu {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	private void createOverworldAndEndLayers(Dimension dimension) {
+	private void createDimensionMenu() {
+		JMenu dimensionMenu = new JMenu("Dimension");
 		// @formatter:off
 		ButtonGroup group = new ButtonGroup();
-		Menus.radio(   menu, dimensionSetting, group,     Dimension.OVERWORLD,                                      MenuShortcuts.DISPLAY_DIMENSION_OVERWORLD);
-		createOverworldLayers(dimension);
-		menu.addSeparator();
-		Menus.radio(   menu, dimensionSetting, group,     Dimension.END,                                            MenuShortcuts.DISPLAY_DIMENSION_END);
-		endLayer(      settings.showEndCities,            "End City Icons",         getIcon("end_city.png"),        MenuShortcuts.SHOW_END_CITIES, dimension, LayerIds.END_CITY);
+		Menus.radio(dimensionMenu, dimensionSetting, group, Dimension.OVERWORLD, MenuShortcuts.DISPLAY_DIMENSION_OVERWORLD);
+		if (viewerFacade.hasNetherBiomeLayer()) {
+			Menus.radio(dimensionMenu, dimensionSetting, group, Dimension.NETHER, MenuShortcuts.DISPLAY_DIMENSION_NETHER);
+		}
+		if (viewerFacade.hasEndBiomeLayer() || viewerFacade.hasLayer(LayerIds.END_ISLANDS)) {
+			Menus.radio(dimensionMenu, dimensionSetting, group, Dimension.END, MenuShortcuts.DISPLAY_DIMENSION_END);
+		}
+		if (viewerFacade.hasMoonBiomeLayer()) {
+			Menus.radio(
+					dimensionMenu,
+					dimensionSetting,
+					group,
+					Dimension.MOON,
+					MenuShortcuts.DISPLAY_DIMENSION_MOON);
+		}
+		if (viewerFacade.hasTwilightForestBiomeLayer()) {
+			Menus.radio(
+					dimensionMenu,
+					dimensionSetting,
+					group,
+					Dimension.TWILIGHT_FOREST,
+					MenuShortcuts.DISPLAY_DIMENSION_TWILIGHT_FOREST);
+		}
+		for (Dimension dimension : new Dimension[] {
+				Dimension.MARS,
+				Dimension.ASTEROIDS,
+				Dimension.CERES,
+				Dimension.IO,
+				Dimension.ENCELADUS,
+				Dimension.PROTEUS,
+				Dimension.PLUTO,
+				Dimension.MEHEN_BELT,
+				Dimension.ROSS_128B
+		}) {
+			if (viewerFacade.hasBiomeLayer(dimension)) {
+				Menus.radio(dimensionMenu, dimensionSetting, group, dimension);
+			}
+		}
 		// @formatter:on
+		menu.add(dimensionMenu);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createSelectedDimensionLayers(Dimension dimension) {
+		if (dimension == Dimension.OVERWORLD) {
+			menu.addSeparator();
+			createOverworldLayers(dimension);
+		} else if (dimension == Dimension.NETHER) {
+			menu.addSeparator();
+			createNetherLayers(dimension);
+			createGtnhSpaceStructureLayers(dimension);
+		} else if (dimension == Dimension.END) {
+			menu.addSeparator();
+			endLayer(
+					settings.showEndCities,
+					"End City Icons",
+					getIcon("end_city.png"),
+					MenuShortcuts.SHOW_END_CITIES,
+					dimension,
+					LayerIds.END_CITY);
+			createGtnhEndLayers();
+		} else if (dimension == Dimension.MOON) {
+			menu.addSeparator();
+			addGtnhMoonStructureLayer(
+					settings.showGtnhMoonDungeons,
+					GtnhMoonStructureType.MOON_DUNGEON,
+					LayerIds.GTNH_MOON_DUNGEON);
+			addGtnhMoonStructureLayer(
+					settings.showGtnhMoonVillages,
+					GtnhMoonStructureType.MOON_VILLAGE,
+					LayerIds.GTNH_MOON_VILLAGE);
+		} else if (dimension == Dimension.TWILIGHT_FOREST) {
+			menu.addSeparator();
+			JMenu landmarksMenu = new JMenu("Magic Map Landmarks");
+			landmarksMenu.setIcon(getIcon("twilight_magic_map.png"));
+			for (GtnhTwilightForestFeatureType type :
+					GtnhTwilightForestFeatureType.values()) {
+				if (viewerFacade.hasLayer(type.getLayerId())) {
+					Menus.checkbox(
+							landmarksMenu,
+							settings.getShowGtnhTwilightForestFeature(type),
+							type.getDisplayName(),
+							getIcon(type.getIconFile()));
+				}
+			}
+			if (landmarksMenu.getItemCount() > 0) {
+				menu.add(landmarksMenu);
+			}
+		} else {
+			menu.addSeparator();
+			createGtnhSpaceStructureLayers(dimension);
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createGtnhSpaceStructureLayers(Dimension dimension) {
+		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
+			if (type.getDimension() == dimension
+					&& viewerFacade.hasLayer(type.getLayerId())) {
+				Menus.checkbox(
+						menu,
+						settings.getShowGtnhSpaceStructure(type),
+						type.getDisplayName(),
+						getIcon(type.getMenuIcon()));
+			}
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void addGtnhMoonStructureLayer(
+			Setting<Boolean> setting,
+			GtnhMoonStructureType type,
+			int layerId) {
+		if (viewerFacade.hasLayer(layerId)) {
+			Menus.checkbox(
+					menu,
+					setting,
+					type.getDisplayName(),
+					getIcon(type.getMenuIcon()));
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createGtnhEndLayers() {
+		addGtnhEndStructureLayer(
+				settings.showGtnhHeeBiomeIslands,
+				GtnhEndStructureType.HEE_BIOME_ISLAND,
+				LayerIds.GTNH_HEE_BIOME_ISLAND);
+		addGtnhEndStructureLayer(
+				settings.showGtnhHeeDungeonTowers,
+				GtnhEndStructureType.HEE_DUNGEON_TOWER,
+				LayerIds.GTNH_HEE_DUNGEON_TOWER);
+		addGtnhEndStructureLayer(
+				settings.showGtnhDraconicChaosIslands,
+				GtnhEndStructureType.DRACONIC_CHAOS_ISLAND,
+				LayerIds.GTNH_DRACONIC_CHAOS_ISLAND);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void addGtnhEndStructureLayer(
+			Setting<Boolean> setting,
+			GtnhEndStructureType type,
+			int layerId) {
+		if (viewerFacade.hasLayer(layerId)) {
+			endMenuItems.add(Menus.checkbox(
+					menu,
+					setting,
+					type.getDisplayName(),
+					getIcon(type.getMenuIcon())));
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -96,6 +269,138 @@ public class LayersMenu {
 		overworldLayer(settings.showOceanFeatures,        "Ocean Features Icons",   getIcon("shipwreck.png"),       MenuShortcuts.SHOW_OCEAN_FEATURES,    dimension, LayerIds.OCEAN_FEATURES);
 		overworldLayer(settings.showNetherFortresses,     "Nether Features Icons",  getIcon("nether_fortress.png"), MenuShortcuts.SHOW_NETHER_FEATURES,   dimension, LayerIds.NETHER_FEATURES);
 		// @formatter:on
+		createGtnhOverworldStructureLayers();
+		createGtnhRoguelikeLayers();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createNetherLayers(Dimension dimension) {
+		overworldLayer(
+				settings.showNetherFortresses,
+				"Nether Fortress Icons",
+				getIcon("nether_fortress.png"),
+				MenuShortcuts.SHOW_NETHER_FEATURES,
+				dimension,
+				LayerIds.GTNH_NETHER_FORTRESS);
+		addGtnhNetherStructureLayer(
+				settings.showGtnhTinkersNetherSlimeIslands,
+				GtnhNetherStructureType.TINKERS_NETHER_SLIME_ISLAND,
+				LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND);
+		addGtnhNetherStructureLayer(
+				settings.showGtnhAutomagyNetherSpires,
+				GtnhNetherStructureType.AUTOMAGY_NETHER_SPIRE,
+				LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void addGtnhNetherStructureLayer(
+			Setting<Boolean> setting,
+			GtnhNetherStructureType type,
+			int layerId) {
+		if (viewerFacade.hasLayer(layerId)) {
+			overworldMenuItems.add(Menus.checkbox(
+					menu,
+					setting,
+					type.getDisplayName(),
+					getIcon(type.getMenuIcon())));
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createGtnhOverworldStructureLayers() {
+		addGtnhStructureLayer(
+				settings.showGtnhWorldSpawn,
+				GtnhOverworldStructureType.WORLD_SPAWN,
+				LayerIds.GTNH_WORLD_SPAWN);
+		addGtnhStructureLayer(
+				settings.showGtnhStrongholds,
+				GtnhOverworldStructureType.STRONGHOLD,
+				LayerIds.GTNH_STRONGHOLD);
+		addGtnhStructureLayer(
+				settings.showGtnhVillages,
+				GtnhOverworldStructureType.VILLAGE,
+				LayerIds.GTNH_VILLAGE);
+		addGtnhStructureLayer(
+				settings.showGtnhMineshafts,
+				GtnhOverworldStructureType.MINESHAFT,
+				LayerIds.GTNH_MINESHAFT);
+		addGtnhStructureLayer(
+				settings.showGtnhLootGamesDungeons,
+				GtnhOverworldStructureType.LOOTGAMES_DUNGEON,
+				LayerIds.GTNH_LOOTGAMES_DUNGEON);
+		addGtnhStructureLayer(
+				settings.showGtnhTinkersSlimeIslands,
+				GtnhOverworldStructureType.TINKERS_SLIME_ISLAND,
+				LayerIds.GTNH_TINKERS_SLIME_ISLAND);
+		addGtnhStructureLayer(
+				settings.showGtnhVanillaSpawnerDungeons,
+				GtnhOverworldStructureType.VANILLA_SPAWNER_DUNGEON,
+				LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON);
+		addGtnhStructureLayer(
+				settings.showGtnhThaumcraftAuraNodes,
+				GtnhOverworldStructureType.THAUMCRAFT_AURA_NODE,
+				LayerIds.GTNH_THAUMCRAFT_AURA_NODE);
+		addGtnhStructureLayer(
+				settings.showGtnhThaumcraftEldritchAltars,
+				GtnhOverworldStructureType.THAUMCRAFT_ELDRITCH_ALTAR,
+				LayerIds.GTNH_THAUMCRAFT_ELDRITCH_ALTAR);
+		addGtnhStructureLayer(
+				settings.showGtnhAe2Meteorites,
+				GtnhOverworldStructureType.AE2_METEORITE,
+				LayerIds.GTNH_AE2_METEORITE);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void addGtnhStructureLayer(
+			Setting<Boolean> setting,
+			GtnhOverworldStructureType type,
+			int layerId) {
+		if (viewerFacade.hasLayer(layerId)) {
+			overworldMenuItems.add(Menus.checkbox(
+					menu,
+					setting,
+					type.getDisplayName(),
+					getIcon(type.getMenuIcon())));
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void createGtnhRoguelikeLayers() {
+		int[] layerIds = {
+				LayerIds.GTNH_ROGUELIKE_DESERT,
+				LayerIds.GTNH_ROGUELIKE_FOREST,
+				LayerIds.GTNH_ROGUELIKE_ICE,
+				LayerIds.GTNH_ROGUELIKE_JUNGLE,
+				LayerIds.GTNH_ROGUELIKE_MESA,
+				LayerIds.GTNH_ROGUELIKE_MOUNTAIN,
+				LayerIds.GTNH_ROGUELIKE_PLAINS,
+				LayerIds.GTNH_ROGUELIKE_SWAMP
+		};
+		boolean supported = false;
+		for (int layerId : layerIds) {
+			supported |= viewerFacade.hasLayer(layerId);
+		}
+		if (!supported) {
+			return;
+		}
+
+		JMenu roguelikeMenu = new JMenu("Possible Roguelike Dungeons");
+		roguelikeMenu.setIcon(getIcon("mineshaft.png"));
+		roguelikeMenu.setToolTipText(
+				"Seed-predicted entrances; final generation still depends on terrain blocks");
+		GtnhRoguelikeDungeonType[] types = GtnhRoguelikeDungeonType.values();
+		for (int i = 0; i < types.length; i++) {
+			GtnhRoguelikeDungeonType type = types[i];
+			if (viewerFacade.hasLayer(layerIds[i])) {
+				Menus.checkbox(
+						roguelikeMenu,
+						settings.getShowGtnhRoguelike(type),
+						type.getDisplayName() + " — " + type.getEntranceName(),
+						getIcon(type.getMenuIcon()));
+			}
+		}
+		menu.add(roguelikeMenu);
+		overworldMenuItems.add(roguelikeMenu);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -114,7 +419,9 @@ public class LayersMenu {
 			MenuShortcut menuShortcut,
 			Dimension dimension,
 			int layerId) {
-		overworldMenuItems.add(createLayer(setting, text, icon, menuShortcut, dimension, layerId));
+		if (viewerFacade.hasLayer(layerId)) {
+			overworldMenuItems.add(createLayer(setting, text, icon, menuShortcut, dimension, layerId));
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -125,7 +432,9 @@ public class LayersMenu {
 			MenuShortcut menuShortcut,
 			Dimension dimension,
 			int layerId) {
-		endMenuItems.add(createLayer(setting, text, icon, menuShortcut, dimension, layerId));
+		if (viewerFacade.hasLayer(layerId)) {
+			endMenuItems.add(createLayer(setting, text, icon, menuShortcut, dimension, layerId));
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

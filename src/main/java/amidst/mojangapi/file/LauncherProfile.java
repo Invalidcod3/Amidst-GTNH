@@ -13,6 +13,17 @@ import amidst.mojangapi.file.service.ClassLoaderService;
 
 @Immutable
 public class LauncherProfile {
+	public static LauncherProfile createGtnhWorkerProfile(DotMinecraftDirectory dotMinecraftDirectory) {
+		Path placeholder = dotMinecraftDirectory.getRoot().resolve(".amidst-gtnh-worker");
+		return new LauncherProfile(
+				dotMinecraftDirectory,
+				dotMinecraftDirectory.asProfileDirectory(),
+				new VersionDirectory(placeholder, placeholder),
+				new VersionJson("GTNH/RWG"),
+				true,
+				"GT New Horizons (worker)");
+	}
+
 	private final ClassLoaderService classLoaderService = new ClassLoaderService();
 	private final DotMinecraftDirectory dotMinecraftDirectory;
 	private final ProfileDirectory profileDirectory;

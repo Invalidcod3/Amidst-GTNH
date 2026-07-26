@@ -58,8 +58,8 @@ public class CursorInformationWidget extends TextWidget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private String getBiomeNameAt(CoordinatesInWorld coordinates) {
 		Dimension dimension = dimensionSetting.get();
-		if (dimension.equals(Dimension.OVERWORLD)) {
-			return getOverworldBiomeNameAt(coordinates);
+		if (!dimension.equals(Dimension.END)) {
+			return getLoadedBiomeNameAt(coordinates);
 		} else if (dimension.equals(Dimension.END)) {
 			return biomeList.getByIdOrNull(DefaultBiomes.theEnd).getName();
 		} else {
@@ -69,7 +69,7 @@ public class CursorInformationWidget extends TextWidget {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	private String getOverworldBiomeNameAt(CoordinatesInWorld coordinates) {
+	private String getLoadedBiomeNameAt(CoordinatesInWorld coordinates) {
 		Fragment fragment = graph.getFragmentAt(coordinates);
 		if (fragment != null && fragment.getState().equals(Fragment.State.LOADED)) {
 			long x = coordinates.getXRelativeToFragmentAs(Resolution.QUARTER);

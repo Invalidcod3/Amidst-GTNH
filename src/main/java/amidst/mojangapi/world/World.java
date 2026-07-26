@@ -1,9 +1,19 @@
 package amidst.mojangapi.world;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import amidst.documentation.ThreadSafe;
+import amidst.gtnh.structure.GtnhRoguelikeDungeonProducers;
+import amidst.gtnh.structure.GtnhRoguelikeDungeonType;
+import amidst.gtnh.structure.GtnhSpaceStructureType;
+import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
+import amidst.gtnh.structure.GtnhOverworldStructureType;
+import amidst.gtnh.structure.GtnhNetherStructureType;
+import amidst.gtnh.structure.GtnhEndStructureType;
+import amidst.gtnh.structure.GtnhMoonStructureType;
+import amidst.gtnh.structure.GtnhNetherFortressProducer;
 import amidst.mojangapi.minecraftinterface.RecognisedVersion;
 import amidst.mojangapi.world.biome.BiomeList;
 import amidst.mojangapi.world.icon.WorldIcon;
@@ -25,6 +35,10 @@ public class World {
 
 	private final BiomeDataOracle overworldBiomeDataOracle;
 	private final Optional<BiomeDataOracle> netherBiomeDataOracle;
+	private final Optional<BiomeDataOracle> endBiomeDataOracle;
+	private final Optional<BiomeDataOracle> moonBiomeDataOracle;
+	private final Optional<BiomeDataOracle> twilightForestBiomeDataOracle;
+	private final Map<Dimension, Optional<BiomeDataOracle>> spaceBiomeDataOracles;
 	private final EndIslandOracle endIslandOracle;
 	private final SlimeChunkOracle slimeChunkOracle;
 	private final CachedWorldIconProducer spawnProducer;
@@ -38,6 +52,8 @@ public class World {
 	private final WorldIconProducer<Void> oceanFeaturesProducer;
 	private final WorldIconProducer<Void> netherFortressProducer;
 	private final WorldIconProducer<List<EndIsland>> endCityProducer;
+	private final GtnhRoguelikeDungeonProducers gtnhRoguelikeDungeonProducers;
+	private final WorldIconProducer<Void> gtnhNetherFortressProducer;
 
 	public World(
 			WorldOptions worldOptions,
@@ -47,6 +63,10 @@ public class World {
 			List<Integer> enabledLayers,
 			BiomeDataOracle overworldBiomeDataOracle,
 			Optional<BiomeDataOracle> netherBiomeDataOracle,
+			Optional<BiomeDataOracle> endBiomeDataOracle,
+			Optional<BiomeDataOracle> moonBiomeDataOracle,
+			Optional<BiomeDataOracle> twilightForestBiomeDataOracle,
+			Map<Dimension, Optional<BiomeDataOracle>> spaceBiomeDataOracles,
 			EndIslandOracle endIslandOracle,
 			SlimeChunkOracle slimeChunkOracle,
 			CachedWorldIconProducer spawnProducer,
@@ -59,7 +79,8 @@ public class World {
 			WorldIconProducer<Void> woodlandMansionProducer,
 			WorldIconProducer<Void> oceanFeaturesProducer,
 			WorldIconProducer<Void> netherFortressProducer,
-			WorldIconProducer<List<EndIsland>> endCityProducer) {
+			WorldIconProducer<List<EndIsland>> endCityProducer,
+			GtnhRoguelikeDungeonProducers gtnhRoguelikeDungeonProducers) {
 		this.worldOptions = worldOptions;
 		this.movablePlayerList = movablePlayerList;
 		this.recognisedVersion = recognisedVersion;
@@ -67,6 +88,10 @@ public class World {
 		this.enabledLayers = enabledLayers;
 		this.overworldBiomeDataOracle = overworldBiomeDataOracle;
 		this.netherBiomeDataOracle = netherBiomeDataOracle;
+		this.endBiomeDataOracle = endBiomeDataOracle;
+		this.moonBiomeDataOracle = moonBiomeDataOracle;
+		this.twilightForestBiomeDataOracle = twilightForestBiomeDataOracle;
+		this.spaceBiomeDataOracles = Map.copyOf(spaceBiomeDataOracles);
 		this.endIslandOracle = endIslandOracle;
 		this.slimeChunkOracle = slimeChunkOracle;
 		this.spawnProducer = spawnProducer;
@@ -80,6 +105,9 @@ public class World {
 		this.oceanFeaturesProducer = oceanFeaturesProducer;
 		this.netherFortressProducer = netherFortressProducer;
 		this.endCityProducer = endCityProducer;
+		this.gtnhRoguelikeDungeonProducers = gtnhRoguelikeDungeonProducers;
+		this.gtnhNetherFortressProducer =
+				new GtnhNetherFortressProducer(worldOptions.getWorldSeed().getLong());
 	}
 
 	public WorldOptions getWorldOptions() {
@@ -108,6 +136,33 @@ public class World {
 
 	public Optional<BiomeDataOracle> getNetherBiomeDataOracle() {
 		return netherBiomeDataOracle;
+	}
+
+	public Optional<BiomeDataOracle> getEndBiomeDataOracle() {
+		return endBiomeDataOracle;
+	}
+
+	public Optional<BiomeDataOracle> getMoonBiomeDataOracle() {
+		return moonBiomeDataOracle;
+	}
+
+	public Optional<BiomeDataOracle> getTwilightForestBiomeDataOracle() {
+		return twilightForestBiomeDataOracle;
+	}
+
+	public Optional<BiomeDataOracle> getBiomeDataOracle(Dimension dimension) {
+		return switch (dimension) {
+			case OVERWORLD -> Optional.of(overworldBiomeDataOracle);
+			case NETHER -> netherBiomeDataOracle;
+			case END -> endBiomeDataOracle;
+			case MOON -> moonBiomeDataOracle;
+			case TWILIGHT_FOREST -> twilightForestBiomeDataOracle;
+			default -> spaceBiomeDataOracles.getOrDefault(dimension, Optional.empty());
+		};
+	}
+
+	public Map<Dimension, Optional<BiomeDataOracle>> getSpaceBiomeDataOracles() {
+		return spaceBiomeDataOracles;
 	}
 
 	public EndIslandOracle getEndIslandOracle() {
@@ -160,6 +215,39 @@ public class World {
 
 	public WorldIconProducer<Void> getOceanFeaturesProducer() {
 		return oceanFeaturesProducer;
+	}
+
+	public WorldIconProducer<Void> getGtnhRoguelikeDungeonProducer(GtnhRoguelikeDungeonType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhOverworldStructureProducer(GtnhOverworldStructureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhNetherStructureProducer(GtnhNetherStructureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhEndStructureProducer(GtnhEndStructureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhMoonStructureProducer(GtnhMoonStructureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhSpaceStructureProducer(GtnhSpaceStructureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhTwilightForestFeatureProducer(
+			GtnhTwilightForestFeatureType type) {
+		return gtnhRoguelikeDungeonProducers.get(type);
+	}
+
+	public WorldIconProducer<Void> getGtnhNetherFortressProducer() {
+		return gtnhNetherFortressProducer;
 	}
 
 	public WorldIcon getSpawnWorldIcon() {

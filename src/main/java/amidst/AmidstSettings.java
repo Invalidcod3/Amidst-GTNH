@@ -1,11 +1,17 @@
 package amidst;
 
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.prefs.Preferences;
 
 import amidst.documentation.AmidstThread;
 import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.ThreadSafe;
 import amidst.gui.main.AmidstLookAndFeel;
+import amidst.gtnh.structure.GtnhRoguelikeDungeonType;
+import amidst.gtnh.structure.GtnhSpaceStructureType;
+import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
 import amidst.mojangapi.world.Dimension;
 import amidst.mojangapi.world.WorldType;
 import amidst.settings.Setting;
@@ -28,6 +34,35 @@ public class AmidstSettings {
 	public final Setting<Boolean> showOceanFeatures;
 	public final Setting<Boolean> showNetherFortresses;
 	public final Setting<Boolean> showEndCities;
+	public final Setting<Boolean> showGtnhRoguelikeDesert;
+	public final Setting<Boolean> showGtnhRoguelikeForest;
+	public final Setting<Boolean> showGtnhRoguelikeIce;
+	public final Setting<Boolean> showGtnhRoguelikeJungle;
+	public final Setting<Boolean> showGtnhRoguelikeMesa;
+	public final Setting<Boolean> showGtnhRoguelikeMountain;
+	public final Setting<Boolean> showGtnhRoguelikePlains;
+	public final Setting<Boolean> showGtnhRoguelikeSwamp;
+	public final Setting<Boolean> showGtnhStrongholds;
+	public final Setting<Boolean> showGtnhVillages;
+	public final Setting<Boolean> showGtnhMineshafts;
+	public final Setting<Boolean> showGtnhLootGamesDungeons;
+	public final Setting<Boolean> showGtnhTinkersSlimeIslands;
+	public final Setting<Boolean> showGtnhVanillaSpawnerDungeons;
+	public final Setting<Boolean> showGtnhThaumcraftAuraNodes;
+	public final Setting<Boolean> showGtnhThaumcraftEldritchAltars;
+	public final Setting<Boolean> showGtnhAe2Meteorites;
+	public final Setting<Boolean> showGtnhWorldSpawn;
+	public final Setting<Boolean> showGtnhTinkersNetherSlimeIslands;
+	public final Setting<Boolean> showGtnhAutomagyNetherSpires;
+	public final Setting<Boolean> showGtnhHeeBiomeIslands;
+	public final Setting<Boolean> showGtnhHeeDungeonTowers;
+	public final Setting<Boolean> showGtnhDraconicChaosIslands;
+	public final Setting<Boolean> showGtnhMoonDungeons;
+	public final Setting<Boolean> showGtnhMoonVillages;
+	private final Map<GtnhTwilightForestFeatureType, Setting<Boolean>>
+			showGtnhTwilightForestFeatures;
+	private final Map<GtnhSpaceStructureType, Setting<Boolean>>
+			showGtnhSpaceStructures;
 
 	public final Setting<Boolean> smoothScrolling;
 	public final Setting<Boolean> fragmentFading;
@@ -67,6 +102,47 @@ public class AmidstSettings {
 		showOceanFeatures          = Setting.createBoolean(  preferences, "oceanFeaturesIcons",   true);
 		showNetherFortresses       = Setting.createBoolean(  preferences, "netherFortressIcons",  false);
 		showEndCities              = Setting.createBoolean(  preferences, "endCityIcons",         false);
+		showGtnhRoguelikeDesert    = Setting.createBoolean(  preferences, "gtnhRoguelikeDesert",  true);
+		showGtnhRoguelikeForest    = Setting.createBoolean(  preferences, "gtnhRoguelikeForest",  true);
+		showGtnhRoguelikeIce       = Setting.createBoolean(  preferences, "gtnhRoguelikeIce",     true);
+		showGtnhRoguelikeJungle    = Setting.createBoolean(  preferences, "gtnhRoguelikeJungle",  true);
+		showGtnhRoguelikeMesa      = Setting.createBoolean(  preferences, "gtnhRoguelikeMesa",    true);
+		showGtnhRoguelikeMountain  = Setting.createBoolean(  preferences, "gtnhRoguelikeMountain",true);
+		showGtnhRoguelikePlains    = Setting.createBoolean(  preferences, "gtnhRoguelikePlains",  true);
+		showGtnhRoguelikeSwamp     = Setting.createBoolean(  preferences, "gtnhRoguelikeSwamp",   true);
+		showGtnhStrongholds        = Setting.createBoolean(  preferences, "gtnhStrongholdIcons",  true);
+		showGtnhVillages           = Setting.createBoolean(  preferences, "gtnhVillageIcons",     true);
+		showGtnhMineshafts         = Setting.createBoolean(  preferences, "gtnhMineshaftIcons",   false);
+		showGtnhLootGamesDungeons  = Setting.createBoolean(  preferences, "gtnhLootGamesDungeons",true);
+		showGtnhTinkersSlimeIslands= Setting.createBoolean(  preferences, "gtnhTinkersSlimeIslands", true);
+		showGtnhVanillaSpawnerDungeons= Setting.createBoolean(preferences, "gtnhVanillaSpawnerDungeons", false);
+		showGtnhThaumcraftAuraNodes= Setting.createBoolean(  preferences, "gtnhThaumcraftAuraNodes", true);
+		showGtnhThaumcraftEldritchAltars= Setting.createBoolean(preferences, "gtnhThaumcraftEldritchAltars", true);
+		showGtnhAe2Meteorites      = Setting.createBoolean(  preferences, "gtnhAe2Meteorites", true);
+		showGtnhWorldSpawn         = Setting.createBoolean(  preferences, "gtnhWorldSpawn", true);
+		showGtnhTinkersNetherSlimeIslands= Setting.createBoolean(preferences, "gtnhTinkersNetherSlimeIslands", true);
+		showGtnhAutomagyNetherSpires= Setting.createBoolean( preferences, "gtnhAutomagyNetherSpires", true);
+		showGtnhHeeBiomeIslands     = Setting.createBoolean( preferences, "gtnhHeeBiomeIslands", true);
+		showGtnhHeeDungeonTowers    = Setting.createBoolean( preferences, "gtnhHeeDungeonTowers", true);
+		showGtnhDraconicChaosIslands= Setting.createBoolean( preferences, "gtnhDraconicChaosIslands", true);
+		showGtnhMoonDungeons        = Setting.createBoolean( preferences, "gtnhMoonDungeons", true);
+		showGtnhMoonVillages        = Setting.createBoolean( preferences, "gtnhMoonVillages", true);
+		EnumMap<GtnhTwilightForestFeatureType, Setting<Boolean>> twilightSettings =
+				new EnumMap<>(GtnhTwilightForestFeatureType.class);
+		for (GtnhTwilightForestFeatureType type : GtnhTwilightForestFeatureType.values()) {
+			twilightSettings.put(
+					type,
+					Setting.createBoolean(preferences, type.getPreferenceKey(), true));
+		}
+		showGtnhTwilightForestFeatures = Collections.unmodifiableMap(twilightSettings);
+		EnumMap<GtnhSpaceStructureType, Setting<Boolean>> spaceSettings =
+				new EnumMap<>(GtnhSpaceStructureType.class);
+		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
+			spaceSettings.put(
+					type,
+					Setting.createBoolean(preferences, type.getPreferenceKey(), true));
+		}
+		showGtnhSpaceStructures = Collections.unmodifiableMap(spaceSettings);
 
 		smoothScrolling            = Setting.createBoolean(  preferences, "mapFlicking",          true);
 		fragmentFading             = Setting.createBoolean(  preferences, "mapFading",            true);
@@ -86,5 +162,27 @@ public class AmidstSettings {
 		
 		biomeProfileSelection = new BiomeProfileSelection(BiomeProfile.getDefaultProfile());
 		// @formatter:on
+	}
+
+	public Setting<Boolean> getShowGtnhRoguelike(GtnhRoguelikeDungeonType type) {
+		return switch (type) {
+			case DESERT -> showGtnhRoguelikeDesert;
+			case FOREST -> showGtnhRoguelikeForest;
+			case ICE -> showGtnhRoguelikeIce;
+			case JUNGLE -> showGtnhRoguelikeJungle;
+			case MESA -> showGtnhRoguelikeMesa;
+			case MOUNTAIN -> showGtnhRoguelikeMountain;
+			case PLAINS -> showGtnhRoguelikePlains;
+			case SWAMP -> showGtnhRoguelikeSwamp;
+		};
+	}
+
+	public Setting<Boolean> getShowGtnhTwilightForestFeature(
+			GtnhTwilightForestFeatureType type) {
+		return showGtnhTwilightForestFeatures.get(type);
+	}
+
+	public Setting<Boolean> getShowGtnhSpaceStructure(GtnhSpaceStructureType type) {
+		return showGtnhSpaceStructures.get(type);
 	}
 }

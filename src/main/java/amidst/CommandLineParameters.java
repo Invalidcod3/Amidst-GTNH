@@ -12,6 +12,7 @@ import org.kohsuke.args4j.spi.Parameters;
 import org.kohsuke.args4j.spi.Setter;
 
 import amidst.documentation.ThreadSafe;
+import amidst.gtnh.worker.GtnhWorkerSettings;
 import amidst.mojangapi.file.LauncherProfile;
 import amidst.mojangapi.file.MinecraftInstallation;
 import amidst.mojangapi.world.WorldOptions;
@@ -107,6 +108,44 @@ public class CommandLineParameters {
 	    usage = "print version"
 	)
 	public volatile boolean printVersion;
+
+	@Option(
+	    name = "-gtnh-worker",
+	    usage = "use a running GTNH biome worker instead of loading the selected Minecraft jar"
+	)
+	public volatile boolean useGtnhWorker;
+
+	@Option(
+	    name = "-gtnh-worker-host",
+	    usage = "GTNH biome worker host (loopback by default)",
+	    metaVar = "<host>",
+	    depends = { "-gtnh-worker" }
+	)
+	public volatile String gtnhWorkerHost = "127.0.0.1";
+
+	@Option(
+	    name = "-gtnh-worker-port",
+	    usage = "GTNH biome worker TCP port",
+	    metaVar = "<port>",
+	    depends = { "-gtnh-worker" }
+	)
+	public volatile int gtnhWorkerPort = 47117;
+
+	@Option(
+	    name = "-gtnh-worker-token",
+	    usage = "shared token configured in the GTNH biome worker",
+	    metaVar = "<token>",
+	    depends = { "-gtnh-worker" }
+	)
+	public volatile String gtnhWorkerToken = "";
+
+	@Option(
+	    name = "-gtnh-colors",
+	    usage = "optional GTNH biome color override JSON file",
+	    metaVar = "<file>",
+	    depends = { "-gtnh-worker" }
+	)
+	public volatile Path gtnhBiomeColorsFile;
 	// @formatter:on
 
 	public Optional<WorldOptions> getInitialWorldOptions() {
@@ -123,7 +162,21 @@ public class CommandLineParameters {
 	    if (minecraftJarFile != null) {
 	        return minecraftInstallation.tryReadLauncherProfile(minecraftJarFile, minecraftJsonFile);
 	    }
+	    if (useGtnhWorker) {
+	        return Optional.of(minecraftInstallation.createGtnhWorkerProfile());
+	    }
 	    return Optional.empty();
+	}
+
+	public Optional<GtnhWorkerSettings> getGtnhWorkerSettings() {
+		if (!useGtnhWorker) {
+			return Optional.empty();
+		}
+		return Optional.of(new GtnhWorkerSettings(
+				gtnhWorkerHost,
+				gtnhWorkerPort,
+				gtnhWorkerToken,
+				gtnhBiomeColorsFile));
 	}
 
 	public static class SeedHandler extends OptionHandler<WorldSeed> {

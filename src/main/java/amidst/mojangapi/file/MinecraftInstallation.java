@@ -45,6 +45,10 @@ public class MinecraftInstallation {
 		this.dotMinecraftDirectory = dotMinecraftDirectory;
 	}
 
+	public LauncherProfile createGtnhWorkerProfile() {
+		return LauncherProfile.createGtnhWorkerProfile(dotMinecraftDirectory);
+	}
+
 	public List<LauncherProfile> readInstalledVersionsAsLauncherProfiles() throws FormatException {
 		Path versions = dotMinecraftDirectory.getVersions();
 		if (!Files.isDirectory(versions)) {

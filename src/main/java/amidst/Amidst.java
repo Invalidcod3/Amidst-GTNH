@@ -9,6 +9,7 @@ import amidst.logging.AmidstLogger;
 import amidst.logging.AmidstMessageBox;
 import amidst.logging.FileLogger;
 import amidst.mojangapi.file.DotMinecraftDirectoryNotFoundException;
+import amidst.mojangapi.minecraftinterface.MinecraftInterfaceCreationException;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.ParserProperties;
@@ -109,6 +110,9 @@ public class Amidst {
 				AmidstMessageBox.displayError(
 						"Please install Minecraft",
 						"Amidst is not able to find your '.minecraft' directory, but it requires a working Minecraft installation.");
+			} catch (MinecraftInterfaceCreationException e) {
+				AmidstLogger.error(e);
+				AmidstMessageBox.displayError("Unable to start world backend", e.getMessage());
 			} catch (Exception e) {
 				handleCrash(e, Thread.currentThread());
 			}

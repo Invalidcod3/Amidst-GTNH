@@ -1,0 +1,10 @@
+{
+  "byName": {
+    "Alps": "#B8C6CE",
+    "Rainforest": "#2F7447",
+    "Wetland": "#557A68"
+  },
+  "byId": {
+    "160": "#6F8F5C"
+  }
+}

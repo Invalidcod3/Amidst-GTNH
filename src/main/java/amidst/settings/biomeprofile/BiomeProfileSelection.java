@@ -12,6 +12,8 @@ import amidst.mojangapi.world.biome.UnknownBiomeIdException;
 @ThreadSafe
 public class BiomeProfileSelection {
 	private ConcurrentHashMap<Integer, BiomeColor> biomeColors;
+	private volatile ConcurrentHashMap<Integer, BiomeColor> runtimeBiomeColors = new ConcurrentHashMap<>();
+	private volatile boolean profileOverridesRuntime;
 	private Set<Integer> unknownBiomes;
 
 	public BiomeProfileSelection(BiomeProfile biomeProfile) {
@@ -32,7 +34,14 @@ public class BiomeProfileSelection {
 	}
 
 	public BiomeColor getBiomeColor(int index) throws UnknownBiomeIdException {
-		BiomeColor color = biomeColors.get(index);
+		BiomeColor color = profileOverridesRuntime
+				? biomeColors.get(index)
+				: runtimeBiomeColors.get(index);
+		if (color == null) {
+			color = profileOverridesRuntime
+					? runtimeBiomeColors.get(index)
+					: biomeColors.get(index);
+		}
 		if(color != null) {
 			return color;
 		} else {
@@ -40,8 +49,15 @@ public class BiomeProfileSelection {
 		}
 	}
 
+	public void setRuntimeBiomeColors(java.util.Map<Integer, BiomeColor> colors) {
+		this.runtimeBiomeColors = new ConcurrentHashMap<>(colors);
+		this.profileOverridesRuntime = false;
+		this.unknownBiomes = ConcurrentHashMap.newKeySet();
+	}
+
 	public void set(BiomeProfile biomeProfile) {
 		this.biomeColors = biomeProfile.createBiomeColorMap();
+		this.profileOverridesRuntime = true;
 		this.unknownBiomes = ConcurrentHashMap.newKeySet();
 		AmidstLogger.info("Biome profile activated: " + biomeProfile.getName());
 	}
