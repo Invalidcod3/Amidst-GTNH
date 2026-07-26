@@ -18,7 +18,7 @@ final class WorkerConfig {
         boolean configuredEnabled = config.getBoolean(
                 "enabled",
                 "worker",
-                false,
+                true,
                 "Enable the loopback-only Amidst biome worker.");
         int configuredPort = config.getInt(
                 "port",
