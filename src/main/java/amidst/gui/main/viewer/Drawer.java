@@ -192,6 +192,7 @@ public class Drawer {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawLayers() {
+		Dimension displayedDimension = dimensionSetting.get();
 		for (FragmentDrawer drawer : drawers) {
 			if (drawer.isEnabled()) {
 				initLayerMatrix();
@@ -201,7 +202,8 @@ public class Drawer {
 						setAlphaComposite(1.0f);
 						g2d.setTransform(layerMatrix);
 						drawer.draw(fragment, g2d, time);
-					} else if (fragment.getState().equals(Fragment.State.LOADED)) {
+					} else if (fragment.getState().equals(Fragment.State.LOADED)
+							&& displayedDimension.equals(fragment.getLoadedDimension())) {
 						setAlphaComposite(fragment.getAlpha());
 						g2d.setTransform(layerMatrix);
 						drawer.draw(fragment, g2d, time);

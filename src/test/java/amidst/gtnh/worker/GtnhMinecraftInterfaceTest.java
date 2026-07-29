@@ -142,6 +142,10 @@ public class GtnhMinecraftInterfaceTest {
 						Dimension.PLUTO,
 						Dimension.MEHEN_BELT,
 						Dimension.ROSS_128B,
+						Dimension.BARNARDA_C,
+						Dimension.DEEP_DARK,
+						Dimension.ANUBIS,
+						Dimension.HORUS,
 						Dimension.TWILIGHT_FOREST),
 				accessor.supportedDimensions());
 	}
@@ -224,9 +228,27 @@ public class GtnhMinecraftInterfaceTest {
 				Dimension.PROTEUS,
 				Dimension.PLUTO,
 				Dimension.MEHEN_BELT,
-				Dimension.ROSS_128B
+				Dimension.ROSS_128B,
+				Dimension.BARNARDA_C,
+				Dimension.DEEP_DARK,
+				Dimension.ANUBIS,
+				Dimension.HORUS
 		};
-		int[] runtimeIds = {-129, -130, -1107, -1113, -1116, -1119, -1108, -1125, -1164};
+		int[] runtimeIds = {
+				-129,
+				-130,
+				-1107,
+				-1113,
+				-1116,
+				-1119,
+				-1108,
+				-1125,
+				-1164,
+				-1222,
+				1100,
+				122,
+				123
+		};
 		for (int index = 0; index < dimensions.length; index++) {
 			accessor.getBiomeData(
 					dimensions[index],
@@ -237,6 +259,7 @@ public class GtnhMinecraftInterfaceTest {
 					false,
 					data -> data[0]);
 			assertEquals(runtimeIds[index], source.lastDimension);
+			assertEquals(dimensions[index].getName(), source.lastDimensionKey);
 		}
 	}
 
@@ -263,6 +286,43 @@ public class GtnhMinecraftInterfaceTest {
 				error.getMessage());
 	}
 
+	@Test
+	public void acceptsDistinctScopedBiomeIdsWhenSwitchingGalaxyDimensions() throws Exception {
+		RecordingSource source = new RecordingSource(123L, "RWG");
+		source.returnScopedGalaxyBiomeIds = true;
+		MinecraftInterface.WorldAccessor accessor =
+				new GtnhMinecraftInterface(source).createWorldAccessor(options(123L));
+
+		int moonBiome = accessor.getBiomeData(
+				Dimension.MOON,
+				0,
+				0,
+				1,
+				1,
+				false,
+				data -> data[0]);
+		int barnardaCBiome = accessor.getBiomeData(
+				Dimension.BARNARDA_C,
+				0,
+				0,
+				1,
+				1,
+				false,
+				data -> data[0]);
+		int moonBiomeAgain = accessor.getBiomeData(
+				Dimension.MOON,
+				0,
+				0,
+				1,
+				1,
+				false,
+				data -> data[0]);
+
+		assertEquals(4136, moonBiome);
+		assertEquals(5672, barnardaCBiome);
+		assertEquals(4136, moonBiomeAgain);
+	}
+
 	private static WorldOptions options(long seed) {
 		return new WorldOptions(WorldSeed.fromUserInput(Long.toString(seed)), WorldType.DEFAULT);
 	}
@@ -270,11 +330,13 @@ public class GtnhMinecraftInterfaceTest {
 	private static final class RecordingSource implements GtnhBiomeSource {
 		private final GtnhWorkerInfo info;
 		private int lastDimension;
+		private String lastDimensionKey;
 		private long lastSeed;
 		private int lastX;
 		private int lastZ;
 		private int lastStep;
 		private int firstBiomeId = 40;
+		private boolean returnScopedGalaxyBiomeIds;
 
 		private RecordingSource(long seed, String worldType) {
 			info = new GtnhWorkerInfo(
@@ -294,11 +356,24 @@ public class GtnhMinecraftInterfaceTest {
 					-1108,
 					-1125,
 					-1164,
+					-1222,
+					1100,
+					122,
+					123,
 					List.of(
 							new GtnhBiomeDescriptor(40, "Alps Forest", 0x729A6A, 0.3f, 0.8f, 0.1f, 0.2f),
 							new GtnhBiomeDescriptor(41, "Alps", 0xB4C5D5, 0.2f, 0.5f, 1.2f, 0.8f),
 							new GtnhBiomeDescriptor(42, "Meadow", 0x88AA66, 0.6f, 0.7f, 0.1f, 0.2f),
-							new GtnhBiomeDescriptor(43, "Wetland", 0x557755, 0.7f, 0.9f, -0.1f, 0.1f)));
+							new GtnhBiomeDescriptor(43, "Wetland", 0x557755, 0.7f, 0.9f, -0.1f, 0.1f),
+							new GtnhBiomeDescriptor(4136, "Moon", 0x6F6F75, 0.0f, 0.0f, 0.1f, 0.2f),
+							new GtnhBiomeDescriptor(
+									5672,
+									"Barnarda C Shores",
+									0x4B1259,
+									0.0f,
+									0.0f,
+									0.1f,
+									0.2f)));
 		}
 
 		@Override
@@ -332,6 +407,27 @@ public class GtnhMinecraftInterfaceTest {
 				result[i] = firstBiomeId + i;
 			}
 			return result;
+		}
+
+		@Override
+		public int[] sampleBiomes(
+				long seed,
+				int dimensionId,
+				String dimensionKey,
+				int blockX,
+				int blockZ,
+				int width,
+				int height,
+				int step) {
+			lastDimensionKey = dimensionKey;
+			if (returnScopedGalaxyBiomeIds) {
+				if (Dimension.MOON.getName().equals(dimensionKey)) {
+					firstBiomeId = 4136;
+				} else if (Dimension.BARNARDA_C.getName().equals(dimensionKey)) {
+					firstBiomeId = 5672;
+				}
+			}
+			return sampleBiomes(seed, dimensionId, blockX, blockZ, width, height, step);
 		}
 	}
 }

@@ -12,6 +12,8 @@ import amidst.gui.main.UpdatePrompt;
 import amidst.gui.main.viewer.BiomeSelection;
 import amidst.gui.main.viewer.Zoom;
 import amidst.gui.profileselect.ProfileSelectWindow;
+import amidst.logging.AmidstLogger;
+import amidst.logging.AmidstMessageBox;
 import amidst.mojangapi.LauncherProfileRunner;
 import amidst.mojangapi.RunningLauncherProfile;
 import amidst.mojangapi.file.*;
@@ -100,10 +102,25 @@ public class Application {
 		}
 
 		if (selectedLauncherProfile.isPresent()) {
-			displayMainWindow(launcherProfileRunner.run(selectedLauncherProfile.get()));
+			if (launcherProfileRunner.isGtnhWorkerEnabled()) {
+				startGtnhMainWindow(selectedLauncherProfile.get());
+			} else {
+				displayMainWindow(launcherProfileRunner.run(selectedLauncherProfile.get()));
+			}
 		} else {
 			displayProfileSelectWindow();
 		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	private void startGtnhMainWindow(LauncherProfile launcherProfile) {
+		threadMaster.getWorkerExecutor().run(
+				() -> launcherProfileRunner.run(launcherProfile),
+				this::displayMainWindow,
+				e -> {
+					AmidstLogger.error(e);
+					AmidstMessageBox.displayError("Unable to start world backend", e.getMessage());
+				});
 	}
 
 	/**

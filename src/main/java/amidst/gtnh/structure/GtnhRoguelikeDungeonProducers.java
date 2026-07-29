@@ -9,7 +9,9 @@ import java.util.function.Consumer;
 
 import amidst.documentation.ThreadSafe;
 import amidst.fragment.Fragment;
+import amidst.gtnh.export.GtnhWaypoint;
 import amidst.gtnh.worker.GtnhMinecraftInterface;
+import amidst.gtnh.worker.GtnhWorldState;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
 import amidst.mojangapi.world.Dimension;
 import amidst.mojangapi.world.coordinates.CoordinateUtils;
@@ -125,6 +127,42 @@ public final class GtnhRoguelikeDungeonProducers {
 
 	public WorldIconProducer<Void> get(GtnhTwilightForestFeatureType type) {
 		return twilightForestProducers.get(type);
+	}
+
+	public boolean supportsJourneyMapImport() {
+		return minecraftInterface != null;
+	}
+
+	public boolean supportsWorldStateUpdates() {
+		return minecraftInterface != null;
+	}
+
+	public GtnhWorldState getWorldState(long sinceRevision)
+			throws MinecraftInterfaceException {
+		if (minecraftInterface == null) {
+			return new GtnhWorldState(
+					Math.max(0L, sinceRevision),
+					false,
+					new int[0],
+					new int[0]);
+		}
+		return minecraftInterface.getWorldState(sinceRevision);
+	}
+
+	public int getDimensionId(Dimension dimension) {
+		return minecraftInterface == null
+				? dimension.getId()
+				: minecraftInterface.toWorkerDimensionId(dimension);
+	}
+
+	public int importJourneyMapWaypoints(
+			Dimension dimension,
+			List<GtnhWaypoint> waypoints) throws MinecraftInterfaceException {
+		if (minecraftInterface == null) {
+			throw new MinecraftInterfaceException(
+					"JourneyMap import requires a connected GTNH worker");
+		}
+		return minecraftInterface.importJourneyMapWaypoints(dimension, waypoints);
 	}
 
 	private Map<GtnhRoguelikeDungeonType, WorldIconProducer<Void>> createProducers() {

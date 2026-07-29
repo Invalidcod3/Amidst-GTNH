@@ -13,6 +13,7 @@
 /logs
 /nbproject
 /build
+/.gradle
 /gtnh-worker/.gradle
 /gtnh-worker/build
 /gtnh-worker/run

@@ -10,6 +10,7 @@ import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.ThreadSafe;
 import amidst.gui.main.AmidstLookAndFeel;
 import amidst.gtnh.structure.GtnhRoguelikeDungeonType;
+import amidst.gtnh.structure.GtnhEndStructureType;
 import amidst.gtnh.structure.GtnhSpaceStructureType;
 import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
 import amidst.mojangapi.world.Dimension;
@@ -59,6 +60,8 @@ public class AmidstSettings {
 	public final Setting<Boolean> showGtnhDraconicChaosIslands;
 	public final Setting<Boolean> showGtnhMoonDungeons;
 	public final Setting<Boolean> showGtnhMoonVillages;
+	private final Map<GtnhEndStructureType, Setting<Boolean>>
+			showGtnhEndStructures;
 	private final Map<GtnhTwilightForestFeatureType, Setting<Boolean>>
 			showGtnhTwilightForestFeatures;
 	private final Map<GtnhSpaceStructureType, Setting<Boolean>>
@@ -127,6 +130,22 @@ public class AmidstSettings {
 		showGtnhDraconicChaosIslands= Setting.createBoolean( preferences, "gtnhDraconicChaosIslands", true);
 		showGtnhMoonDungeons        = Setting.createBoolean( preferences, "gtnhMoonDungeons", true);
 		showGtnhMoonVillages        = Setting.createBoolean( preferences, "gtnhMoonVillages", true);
+		EnumMap<GtnhEndStructureType, Setting<Boolean>> endSettings =
+				new EnumMap<>(GtnhEndStructureType.class);
+		endSettings.put(GtnhEndStructureType.HEE_BIOME_ISLAND, showGtnhHeeBiomeIslands);
+		endSettings.put(GtnhEndStructureType.HEE_DUNGEON_TOWER, showGtnhHeeDungeonTowers);
+		endSettings.put(
+				GtnhEndStructureType.DRACONIC_CHAOS_ISLAND,
+				showGtnhDraconicChaosIslands);
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
+			endSettings.computeIfAbsent(
+					type,
+					ignored -> Setting.createBoolean(
+							preferences,
+							type.getPreferenceKey(),
+							true));
+		}
+		showGtnhEndStructures = Collections.unmodifiableMap(endSettings);
 		EnumMap<GtnhTwilightForestFeatureType, Setting<Boolean>> twilightSettings =
 				new EnumMap<>(GtnhTwilightForestFeatureType.class);
 		for (GtnhTwilightForestFeatureType type : GtnhTwilightForestFeatureType.values()) {
@@ -184,5 +203,9 @@ public class AmidstSettings {
 
 	public Setting<Boolean> getShowGtnhSpaceStructure(GtnhSpaceStructureType type) {
 		return showGtnhSpaceStructures.get(type);
+	}
+
+	public Setting<Boolean> getShowGtnhEndStructure(GtnhEndStructureType type) {
+		return showGtnhEndStructures.get(type);
 	}
 }

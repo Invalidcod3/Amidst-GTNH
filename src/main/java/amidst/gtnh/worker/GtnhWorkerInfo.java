@@ -25,6 +25,10 @@ public record GtnhWorkerInfo(
 		int plutoDimensionId,
 		int mehenBeltDimensionId,
 		int ross128bDimensionId,
+		int barnardaCDimensionId,
+		int deepDarkDimensionId,
+		int anubisDimensionId,
+		int horusDimensionId,
 		List<GtnhBiomeDescriptor> biomes) {
 
 	public GtnhWorkerInfo(
@@ -53,6 +57,10 @@ public record GtnhWorkerInfo(
 				-1008,
 				25,
 				64,
+				-1022,
+				100,
+				22,
+				23,
 				biomes);
 	}
 
@@ -81,6 +89,10 @@ public record GtnhWorkerInfo(
 				-1008,
 				25,
 				64,
+				-1022,
+				100,
+				22,
+				23,
 				biomes);
 	}
 
@@ -108,6 +120,10 @@ public record GtnhWorkerInfo(
 				-1008,
 				25,
 				64,
+				-1022,
+				100,
+				22,
+				23,
 				biomes);
 	}
 

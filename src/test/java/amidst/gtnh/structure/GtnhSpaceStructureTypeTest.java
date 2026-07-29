@@ -25,7 +25,7 @@ public class GtnhSpaceStructureTypeTest {
 			assertTrue(type.getLayerId() >= LayerIds.GTNH_MARS_CAVERN);
 			assertTrue(type.getLayerId() < LayerIds.NUMBER_OF_LAYERS);
 		}
-		assertEquals(15, layerIds.size());
+		assertEquals(18, layerIds.size());
 	}
 
 	@Test
@@ -64,5 +64,14 @@ public class GtnhSpaceStructureTypeTest {
 		assertEquals(
 				Dimension.ROSS_128B,
 				GtnhSpaceStructureType.ROSS_128B_RUIN.getDimension());
+		assertEquals(
+				"minecraft_stonebrick_mossy.png",
+				GtnhSpaceStructureType.DEEP_DARK_DUNGEON.getMenuIcon());
+		assertEquals(
+				"galacticraft_solar_module_full.png",
+				GtnhSpaceStructureType.ANUBIS_ROBOT_VILLAGE.getMenuIcon());
+		assertEquals(
+				"amunra_obsidian_brick.png",
+				GtnhSpaceStructureType.HORUS_OBSIDIAN_PYRAMID.getMenuIcon());
 	}
 }

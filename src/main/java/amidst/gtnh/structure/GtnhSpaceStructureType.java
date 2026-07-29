@@ -95,7 +95,25 @@ public enum GtnhSpaceStructureType {
 			"Possible Arsenopyrite Ore Vein",
 			"gregtech_indium_dust.png",
 			Dimension.ROSS_128B,
-			LayerIds.GTNH_ROSS_128B_ARSENOPYRITE_VEIN);
+			LayerIds.GTNH_ROSS_128B_ARSENOPYRITE_VEIN),
+	DEEP_DARK_DUNGEON(
+			"DEEP_DARK_DUNGEON",
+			"Deep Dark Dungeon",
+			"minecraft_stonebrick_mossy.png",
+			Dimension.DEEP_DARK,
+			LayerIds.GTNH_DEEP_DARK_DUNGEON),
+	ANUBIS_ROBOT_VILLAGE(
+			"ANUBIS_ROBOT_VILLAGE",
+			"Robot Village",
+			"galacticraft_solar_module_full.png",
+			Dimension.ANUBIS,
+			LayerIds.GTNH_ANUBIS_ROBOT_VILLAGE),
+	HORUS_OBSIDIAN_PYRAMID(
+			"HORUS_OBSIDIAN_PYRAMID",
+			"Obsidian Pyramid",
+			"amunra_obsidian_brick.png",
+			Dimension.HORUS,
+			LayerIds.GTNH_HORUS_OBSIDIAN_PYRAMID);
 
 	private final String wireName;
 	private final String displayName;

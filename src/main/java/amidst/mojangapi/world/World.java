@@ -14,7 +14,10 @@ import amidst.gtnh.structure.GtnhNetherStructureType;
 import amidst.gtnh.structure.GtnhEndStructureType;
 import amidst.gtnh.structure.GtnhMoonStructureType;
 import amidst.gtnh.structure.GtnhNetherFortressProducer;
+import amidst.gtnh.export.GtnhWaypoint;
+import amidst.gtnh.worker.GtnhWorldState;
 import amidst.mojangapi.minecraftinterface.RecognisedVersion;
+import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
 import amidst.mojangapi.world.biome.BiomeList;
 import amidst.mojangapi.world.icon.WorldIcon;
 import amidst.mojangapi.world.icon.producer.CachedWorldIconProducer;
@@ -248,6 +251,31 @@ public class World {
 
 	public WorldIconProducer<Void> getGtnhNetherFortressProducer() {
 		return gtnhNetherFortressProducer;
+	}
+
+	public boolean supportsJourneyMapImport() {
+		return gtnhRoguelikeDungeonProducers.supportsJourneyMapImport();
+	}
+
+	public boolean supportsGtnhWorldStateUpdates() {
+		return gtnhRoguelikeDungeonProducers.supportsWorldStateUpdates();
+	}
+
+	public GtnhWorldState getGtnhWorldState(long sinceRevision)
+			throws MinecraftInterfaceException {
+		return gtnhRoguelikeDungeonProducers.getWorldState(sinceRevision);
+	}
+
+	public int getGtnhDimensionId(Dimension dimension) {
+		return gtnhRoguelikeDungeonProducers.getDimensionId(dimension);
+	}
+
+	public int importJourneyMapWaypoints(
+			Dimension dimension,
+			List<GtnhWaypoint> waypoints) throws MinecraftInterfaceException {
+		return gtnhRoguelikeDungeonProducers.importJourneyMapWaypoints(
+				dimension,
+				waypoints);
 	}
 
 	public WorldIcon getSpawnWorldIcon() {

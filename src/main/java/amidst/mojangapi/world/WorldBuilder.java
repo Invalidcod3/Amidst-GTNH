@@ -8,6 +8,7 @@ import java.util.List;
 import amidst.documentation.Immutable;
 import amidst.fragment.layer.LayerIds;
 import amidst.gtnh.structure.GtnhRoguelikeDungeonProducers;
+import amidst.gtnh.structure.GtnhEndStructureType;
 import amidst.gtnh.structure.GtnhSpaceStructureType;
 import amidst.gtnh.structure.GtnhTwilightForestFeatureType;
 import amidst.gtnh.worker.GtnhBiomeCatalogProvider;
@@ -142,6 +143,11 @@ public class WorldBuilder {
 		}
 		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
 			result.add(type.getLayerId());
+		}
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
+			if (!result.contains(type.getLayerId())) {
+				result.add(type.getLayerId());
+			}
 		}
 		return List.copyOf(result);
 	}

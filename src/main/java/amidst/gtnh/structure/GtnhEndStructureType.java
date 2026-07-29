@@ -1,31 +1,65 @@
 package amidst.gtnh.structure;
 
 import amidst.ResourceLoader;
+import amidst.fragment.layer.LayerIds;
 import amidst.mojangapi.world.icon.WorldIconImage;
 
 public enum GtnhEndStructureType {
 	HEE_BIOME_ISLAND(
 			"HEE_BIOME_ISLAND",
 			"HEE Biome Island Centers",
-			"hee_infested_endstone_side.png"),
+			"hee_infested_endstone_side.png",
+			LayerIds.GTNH_HEE_BIOME_ISLAND,
+			"gtnhHeeBiomeIslands"),
 	HEE_DUNGEON_TOWER(
 			"HEE_DUNGEON_TOWER",
 			"Possible HEE Dungeon Towers",
-			"ender_eye.png"),
+			"ender_eye.png",
+			LayerIds.GTNH_HEE_DUNGEON_TOWER,
+			"gtnhHeeDungeonTowers"),
 	DRACONIC_CHAOS_ISLAND(
 			"DRACONIC_CHAOS_ISLAND",
 			"Draconic Evolution Chaos Islands",
-			"draconic_chaotic_core.png");
+			"draconic_chaotic_core.png",
+			LayerIds.GTNH_DRACONIC_CHAOS_ISLAND,
+			"gtnhDraconicChaosIslands"),
+	END_NAQUADAH_ASTEROID(
+			"END_NAQUADAH_ASTEROID",
+			"Naquadah End Asteroids",
+			"gregtech_naquadah_dust_highlighted.png",
+			LayerIds.GTNH_END_NAQUADAH_ASTEROID,
+			"gtnhEndNaquadahAsteroids"),
+	END_SCHEELITE_ASTEROID(
+			"END_SCHEELITE_ASTEROID",
+			"Scheelite End Asteroids",
+			"gregtech_scheelite_dust.png",
+			LayerIds.GTNH_END_SCHEELITE_ASTEROID,
+			"gtnhEndScheeliteAsteroids"),
+	END_PLATINUM_ASTEROID(
+			"END_PLATINUM_ASTEROID",
+			"Platinum End Asteroids",
+			"gregtech_platinum_dust.png",
+			LayerIds.GTNH_END_PLATINUM_ASTEROID,
+			"gtnhEndPlatinumAsteroids");
 
 	private final String wireName;
 	private final String displayName;
 	private final String menuIcon;
+	private final int layerId;
+	private final String preferenceKey;
 	private final WorldIconImage icon;
 
-	GtnhEndStructureType(String wireName, String displayName, String menuIcon) {
+	GtnhEndStructureType(
+			String wireName,
+			String displayName,
+			String menuIcon,
+			int layerId,
+			String preferenceKey) {
 		this.wireName = wireName;
 		this.displayName = displayName;
 		this.menuIcon = menuIcon;
+		this.layerId = layerId;
+		this.preferenceKey = preferenceKey;
 		this.icon = WorldIconImage.from(
 				ResourceLoader.getImage("/amidst/gui/main/icon/" + menuIcon));
 	}
@@ -40,6 +74,14 @@ public enum GtnhEndStructureType {
 
 	public String getMenuIcon() {
 		return menuIcon;
+	}
+
+	public int getLayerId() {
+		return layerId;
+	}
+
+	public String getPreferenceKey() {
+		return preferenceKey;
 	}
 
 	public WorldIconImage getIcon() {

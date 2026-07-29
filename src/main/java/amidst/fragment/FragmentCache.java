@@ -1,7 +1,9 @@
 package amidst.fragment;
 
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import amidst.documentation.AmidstThread;
@@ -9,6 +11,7 @@ import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.ThreadSafe;
 import amidst.fragment.constructor.FragmentConstructor;
 import amidst.logging.AmidstLogger;
+import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 
 @ThreadSafe
 public class FragmentCache {
@@ -63,7 +66,41 @@ public class FragmentCache {
 	public synchronized void reloadAll() {
 		loadingQueue.clear();
 		for (Fragment fragment : cache) {
-			loadingQueue.offer(fragment);
+			Fragment.State state = fragment.getState();
+			if (state.equals(Fragment.State.INITIALIZED)
+					|| state.equals(Fragment.State.LOADED)) {
+				loadingQueue.offer(fragment);
+			}
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public synchronized void reloadBiomeChunks(int[] chunkXs, int[] chunkZs) {
+		if (chunkXs.length != chunkZs.length) {
+			throw new IllegalArgumentException("chunk coordinate arrays must have equal lengths");
+		}
+		Set<CoordinatesInWorld> affectedCorners = new HashSet<>();
+		for (int i = 0; i < chunkXs.length; i++) {
+			affectedCorners.add(CoordinatesInWorld.from(
+					(long) chunkXs[i] * 16L,
+					(long) chunkZs[i] * 16L).toFragmentCorner());
+		}
+		for (Fragment fragment : cache) {
+			if (!fragment.getState().equals(Fragment.State.UNINITIALIZED)
+					&& affectedCorners.contains(fragment.getCorner())) {
+				fragment.requestBiomeReload();
+				loadingQueue.offer(fragment);
+			}
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public synchronized void reloadBiomesAllUsed() {
+		for (Fragment fragment : cache) {
+			if (!fragment.getState().equals(Fragment.State.UNINITIALIZED)) {
+				fragment.requestBiomeReload();
+				loadingQueue.offer(fragment);
+			}
 		}
 	}
 	

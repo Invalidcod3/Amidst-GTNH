@@ -761,7 +761,11 @@ public enum DefaultVersionFeatures {
 				Dimension.PROTEUS,
 				Dimension.PLUTO,
 				Dimension.MEHEN_BELT,
-				Dimension.ROSS_128B
+				Dimension.ROSS_128B,
+				Dimension.BARNARDA_C,
+				Dimension.DEEP_DARK,
+				Dimension.ANUBIS,
+				Dimension.HORUS
 		}) {
 			result.put(
 					dimension,

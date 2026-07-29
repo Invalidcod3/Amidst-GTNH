@@ -8,6 +8,7 @@ import amidst.documentation.NotThreadSafe;
 import amidst.gui.crash.CrashWindow;
 import amidst.gui.export.BiomeExporter;
 import amidst.gui.export.BiomeExporterDialog;
+import amidst.gui.export.CoordinateExporterDialog;
 import amidst.gui.main.menu.MovePlayerPopupMenu;
 import amidst.gui.main.viewer.ViewerFacade;
 import amidst.gui.seedsearcher.SeedSearcherWindow;
@@ -120,6 +121,19 @@ public class Actions {
 		ViewerFacade viewerFacade = mainWindow.getViewerFacade();
 		if (viewerFacade != null) {
 			viewerFacade.openExportDialog();
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public void openCoordinateExportDialog() {
+		ViewerFacade viewerFacade = mainWindow.getViewerFacade();
+		if (viewerFacade != null) {
+			new CoordinateExporterDialog(
+					viewerFacade.getComponent(),
+					viewerFacade.getWorld(),
+					viewerFacade.getVisibleTopLeft(),
+					viewerFacade.getVisibleBottomRight())
+					.show();
 		}
 	}
 

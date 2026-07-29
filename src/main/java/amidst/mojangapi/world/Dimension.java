@@ -60,6 +60,26 @@ public enum Dimension {
 			"bartworks:ross128b",
 			"Ross 128b",
 			Resolution.WORLD),
+	BARNARDA_C(
+			-1022,
+			"galaxyspace:barnarda_c",
+			"Barnarda C",
+			Resolution.WORLD),
+	DEEP_DARK(
+			100,
+			"extrautilities:deep_dark",
+			"Deep Dark",
+			Resolution.WORLD),
+	ANUBIS(
+			22,
+			"amunra:anubis",
+			"Anubis",
+			Resolution.WORLD),
+	HORUS(
+			23,
+			"amunra:horus",
+			"Horus",
+			Resolution.WORLD),
 	TWILIGHT_FOREST(
 			 7,
 			"twilightforest:twilight_forest",
@@ -102,6 +122,10 @@ public enum Dimension {
 				PLUTO.getDisplayName(),
 				MEHEN_BELT.getDisplayName(),
 				ROSS_128B.getDisplayName(),
+				BARNARDA_C.getDisplayName(),
+				DEEP_DARK.getDisplayName(),
+				ANUBIS.getDisplayName(),
+				HORUS.getDisplayName(),
 				TWILIGHT_FOREST.getDisplayName()
 		};
 	}

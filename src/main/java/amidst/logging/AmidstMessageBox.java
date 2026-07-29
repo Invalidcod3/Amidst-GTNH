@@ -1,17 +1,21 @@
 package amidst.logging;
 
 import java.awt.Component;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
 import amidst.documentation.AmidstThread;
 import amidst.documentation.CalledOnlyBy;
-import amidst.documentation.NotThreadSafe;
+import amidst.documentation.ThreadSafe;
 
-@NotThreadSafe
+@ThreadSafe
 public enum AmidstMessageBox {
 	;
+
+	private static final Set<String> DISPLAYED_ERRORS = ConcurrentHashMap.newKeySet();
 
 	public static void displayError(String title, Throwable e) {
 		displayMessageBox(title, MessageFormatter.format(e), JOptionPane.ERROR_MESSAGE);
@@ -104,6 +108,9 @@ public enum AmidstMessageBox {
 	}
 
 	private static void displayMessageBox(Component parent, String title, String message, int type) {
+		if (type == JOptionPane.ERROR_MESSAGE && !DISPLAYED_ERRORS.add(title + "\n" + message)) {
+			return;
+		}
 		SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(parent, message, title, type));
 	}
 

@@ -3,6 +3,7 @@ package amidst.fragment;
 import java.awt.image.BufferedImage;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.UnaryOperator;
@@ -11,6 +12,7 @@ import amidst.documentation.AmidstThread;
 import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.ThreadSafe;
 import amidst.gui.main.viewer.Drawer;
+import amidst.mojangapi.world.Dimension;
 import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 import amidst.mojangapi.world.coordinates.Resolution;
 import amidst.mojangapi.world.icon.WorldIcon;
@@ -92,7 +94,9 @@ public class Fragment {
 	public static final int SIZE = Resolution.FRAGMENT.getStep();
 
 	private final AtomicReference<State> state;
+	private final AtomicBoolean biomeReloadRequested;
 	private volatile CoordinatesInWorld corner;
+	private volatile Dimension loadedDimension;
 
 	private volatile float alpha;
 	private volatile short[][] biomeData;
@@ -102,6 +106,7 @@ public class Fragment {
 
 	public Fragment(int numberOfLayers) {
 		this.state = new AtomicReference<State>(State.UNINITIALIZED);
+		this.biomeReloadRequested = new AtomicBoolean();
 		this.images = new AtomicReferenceArray<>(numberOfLayers);
 		this.worldIcons = new AtomicReferenceArray<>(numberOfLayers);
 	}
@@ -199,10 +204,32 @@ public class Fragment {
 
 	public void setCorner(CoordinatesInWorld corner) {
 		this.corner = corner;
+		this.loadedDimension = null;
+		this.biomeReloadRequested.set(false);
+	}
+
+	public void requestBiomeReload() {
+		biomeReloadRequested.set(true);
+	}
+
+	public boolean getAndClearBiomeReloadRequested() {
+		return biomeReloadRequested.getAndSet(false);
+	}
+
+	public boolean hasBiomeReloadRequested() {
+		return biomeReloadRequested.get();
 	}
 
 	public CoordinatesInWorld getCorner() {
 		return corner;
+	}
+
+	public void setLoadedDimension(Dimension loadedDimension) {
+		this.loadedDimension = loadedDimension;
+	}
+
+	public Dimension getLoadedDimension() {
+		return loadedDimension;
 	}
 	
 	public static enum State {

@@ -71,7 +71,9 @@ public class CursorInformationWidget extends TextWidget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private String getLoadedBiomeNameAt(CoordinatesInWorld coordinates) {
 		Fragment fragment = graph.getFragmentAt(coordinates);
-		if (fragment != null && fragment.getState().equals(Fragment.State.LOADED)) {
+		if (fragment != null
+				&& fragment.getState().equals(Fragment.State.LOADED)
+				&& dimensionSetting.get().equals(fragment.getLoadedDimension())) {
 			long x = coordinates.getXRelativeToFragmentAs(Resolution.QUARTER);
 			long y = coordinates.getYRelativeToFragmentAs(Resolution.QUARTER);
 			short biome = fragment.getBiomeDataAt((int) x, (int) y);

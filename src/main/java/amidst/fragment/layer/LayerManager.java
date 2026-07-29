@@ -76,6 +76,11 @@ public class LayerManager {
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public void reloadBiomeLayers(Dimension dimension, Fragment fragment) {
+		layerLoader.reloadBiomeLayers(dimension, fragment);
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void clearInvalidatedLayers() {
 		layerLoader.clearInvalidatedLayers();
 	}

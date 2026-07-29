@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "AMIDST_JAR=%~dp0target\amidst-gtnh-biomes-v0-1-v13.jar"
+set "AMIDST_JAR=%~dp0build\release\amidst-gtnh-biomes-v0-1-v25.jar"
 
 if not exist "%AMIDST_JAR%" (
     echo Amidst GTNH JAR was not found:

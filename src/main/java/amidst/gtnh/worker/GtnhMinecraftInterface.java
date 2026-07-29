@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 import amidst.documentation.ThreadSafe;
+import amidst.gtnh.export.GtnhWaypoint;
 import amidst.gtnh.structure.GtnhStructureDescriptor;
 import amidst.mojangapi.minecraftinterface.MinecraftInterface;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
@@ -37,6 +38,10 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 					Dimension.PLUTO,
 					Dimension.MEHEN_BELT,
 					Dimension.ROSS_128B,
+					Dimension.BARNARDA_C,
+					Dimension.DEEP_DARK,
+					Dimension.ANUBIS,
+					Dimension.HORUS,
 					Dimension.TWILIGHT_FOREST));
 
 	private final GtnhBiomeSource source;
@@ -99,6 +104,11 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		return workerInfo;
 	}
 
+	public GtnhWorldState getWorldState(long sinceRevision)
+			throws MinecraftInterfaceException {
+		return source.getWorldState(sinceRevision);
+	}
+
 	public Map<Integer, BiomeColor> getRuntimeBiomeColors() {
 		return runtimeBiomeColors;
 	}
@@ -117,6 +127,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		return source.sampleStructures(
 				seed,
 				toWorkerDimensionId(dimension),
+				dimension.getName(),
 				blockX,
 				blockZ,
 				width,
@@ -133,7 +144,13 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		return source.sampleVanillaDungeons(seed, dimensionId, blockX, blockZ, width, height);
 	}
 
-	private int toWorkerDimensionId(Dimension dimension) {
+	public int importJourneyMapWaypoints(
+			Dimension dimension,
+			List<GtnhWaypoint> waypoints) throws MinecraftInterfaceException {
+		return source.importJourneyMapWaypoints(toWorkerDimensionId(dimension), waypoints);
+	}
+
+	public int toWorkerDimensionId(Dimension dimension) {
 		return switch (dimension) {
 			case TWILIGHT_FOREST -> workerInfo.twilightForestDimensionId();
 			case MOON -> workerInfo.moonDimensionId();
@@ -146,6 +163,10 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 			case PLUTO -> workerInfo.plutoDimensionId();
 			case MEHEN_BELT -> workerInfo.mehenBeltDimensionId();
 			case ROSS_128B -> workerInfo.ross128bDimensionId();
+			case BARNARDA_C -> workerInfo.barnardaCDimensionId();
+			case DEEP_DARK -> workerInfo.deepDarkDimensionId();
+			case ANUBIS -> workerInfo.anubisDimensionId();
+			case HORUS -> workerInfo.horusDimensionId();
 			default -> dimension.getId();
 		};
 	}
@@ -181,6 +202,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 			int[] biomes = source.sampleBiomes(
 					seed,
 					toWorkerDimensionId(dimension),
+					dimension.getName(),
 					blockX,
 					blockZ,
 					width,

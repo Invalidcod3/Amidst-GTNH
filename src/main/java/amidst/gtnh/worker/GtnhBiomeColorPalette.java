@@ -40,6 +40,10 @@ public final class GtnhBiomeColorPalette {
 		if (gtnhEndColor != null) {
 			return gtnhEndColor;
 		}
+		BiomeColor barnardaCColor = barnardaCColor(name);
+		if (barnardaCColor != null) {
+			return barnardaCColor;
+		}
 		if (biome.hasTag("TWILIGHT_FOREST")) {
 			return color(biome.mapColor(), 0);
 		}
@@ -120,6 +124,29 @@ public final class GtnhBiomeColorPalette {
 		float brightness = clamp(0.72f - Math.max(0.0f, biome.rootHeight()) * 0.06f, 0.56f, 0.78f);
 		int rgb = Color.HSBtoRGB(hue, saturation, brightness);
 		return color(rgb, variation);
+	}
+
+	private static BiomeColor barnardaCColor(String name) {
+		if (contains(name, "barnardacshores", "barnardacshore")) {
+			return color(0x32105F, 0);
+		}
+		if (contains(name, "barnardacoceans", "barnardacocean")) {
+			return color(0x4B4FB5, 0);
+		}
+		if (contains(name, "barnardacflowers", "barnardacflower")) {
+			return color(0xD02A9F, 0);
+		}
+		if (contains(
+				name,
+				"barnardacforest",
+				"barnardacforests",
+				"barnardaclowplains")) {
+			return color(0x7B3FA1, 0);
+		}
+		if (contains(name, "barnardachills", "barnardachill")) {
+			return color(0x777982, 0);
+		}
+		return null;
 	}
 
 	private static BiomeColor gtnhEndColor(String name) {

@@ -10,30 +10,67 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 
 import amidst.documentation.ThreadSafe;
+import amidst.gtnh.export.GtnhWaypoint;
 import amidst.gtnh.structure.GtnhStructureDescriptor;
+import amidst.logging.AmidstLogger;
+import amidst.logging.AmidstMessageBox;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
 import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 
 @ThreadSafe
 public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	private static final int DEFAULT_TIMEOUT_MILLIS = 30_000;
+	private static final int DEFAULT_RETRY_DELAY_MILLIS = 2_000;
 
 	private final String host;
 	private final int port;
 	private final String token;
 	private final int timeoutMillis;
+	private final int retryDelayMillis;
+	private final Runnable offlineNotifier;
+	private final boolean waitForWorker;
 	private final Gson gson;
+	private final Object availabilityMonitor = new Object();
+
+	private boolean offline;
 
 	public GtnhBiomeWorkerClient(String host, int port, String token) {
-		this(host, port, token, DEFAULT_TIMEOUT_MILLIS);
+		this(
+				host,
+				port,
+				token,
+				DEFAULT_TIMEOUT_MILLIS,
+				DEFAULT_RETRY_DELAY_MILLIS,
+				() -> AmidstMessageBox.displayWarning(
+						"GTNH client not detected",
+						"Amidst could not detect the GTNH client at "
+								+ host
+								+ ":"
+								+ port
+								+ ".\n\nMap updates have been paused. Amidst will wait for GTNH to start "
+								+ "and resume automatically when the worker becomes available."),
+				true);
 	}
 
 	public GtnhBiomeWorkerClient(String host, int port, String token, int timeoutMillis) {
+		this(host, port, token, timeoutMillis, DEFAULT_RETRY_DELAY_MILLIS, () -> {
+		}, false);
+	}
+
+	private GtnhBiomeWorkerClient(
+			String host,
+			int port,
+			String token,
+			int timeoutMillis,
+			int retryDelayMillis,
+			Runnable offlineNotifier,
+			boolean waitForWorker) {
 		if (host == null || host.isBlank()) {
 			throw new IllegalArgumentException("host must not be blank");
 		}
@@ -43,11 +80,34 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		if (timeoutMillis < 1) {
 			throw new IllegalArgumentException("timeout must be positive");
 		}
+		if (retryDelayMillis < 1) {
+			throw new IllegalArgumentException("retry delay must be positive");
+		}
 		this.host = host;
 		this.port = port;
 		this.token = token == null ? "" : token;
 		this.timeoutMillis = timeoutMillis;
+		this.retryDelayMillis = retryDelayMillis;
+		this.offlineNotifier = Objects.requireNonNull(offlineNotifier, "offlineNotifier");
+		this.waitForWorker = waitForWorker;
 		this.gson = new Gson();
+	}
+
+	GtnhBiomeWorkerClient(
+			String host,
+			int port,
+			String token,
+			int timeoutMillis,
+			int retryDelayMillis,
+			Runnable offlineNotifier) {
+		this(
+				host,
+				port,
+				token,
+				timeoutMillis,
+				retryDelayMillis,
+				offlineNotifier,
+				true);
 	}
 
 	@Override
@@ -84,9 +144,32 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 					response.plutoDimensionId,
 					response.mehenBeltDimensionId,
 					response.ross128bDimensionId,
+					response.barnardaCDimensionId,
+					response.deepDarkDimensionId,
+					response.anubisDimensionId,
+					response.horusDimensionId,
 					biomes);
 		} catch (IllegalArgumentException e) {
 			throw new MinecraftInterfaceException("invalid GTNH worker handshake", e);
+		}
+	}
+
+	@Override
+	public GtnhWorldState getWorldState(long sinceRevision)
+			throws MinecraftInterfaceException {
+		Response response = exchange(Request.worldState(token, sinceRevision));
+		int[] chunkXs = response.chunkXs == null ? new int[0] : response.chunkXs;
+		int[] chunkZs = response.chunkZs == null ? new int[0] : response.chunkZs;
+		try {
+			return new GtnhWorldState(
+					response.worldRevision,
+					response.fullRefresh,
+					chunkXs,
+					chunkZs);
+		} catch (IllegalArgumentException | NullPointerException e) {
+			throw new MinecraftInterfaceException(
+					"GTNH worker returned an invalid world-state response",
+					e);
 		}
 	}
 
@@ -99,11 +182,33 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			int width,
 			int height,
 			int step) throws MinecraftInterfaceException {
+		return sampleBiomes(
+				seed,
+				dimensionId,
+				null,
+				blockX,
+				blockZ,
+				width,
+				height,
+				step);
+	}
+
+	@Override
+	public int[] sampleBiomes(
+			long seed,
+			int dimensionId,
+			String dimensionKey,
+			int blockX,
+			int blockZ,
+			int width,
+			int height,
+			int step) throws MinecraftInterfaceException {
 		validateArea(width, height, step);
 		Response response = exchange(Request.biomes(
 				token,
 				seed,
 				dimensionId,
+				dimensionKey,
 				blockX,
 				blockZ,
 				width,
@@ -135,11 +240,31 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			int blockZ,
 			int width,
 			int height) throws MinecraftInterfaceException {
+		return sampleStructures(
+				seed,
+				dimensionId,
+				null,
+				blockX,
+				blockZ,
+				width,
+				height);
+	}
+
+	@Override
+	public List<GtnhStructureDescriptor> sampleStructures(
+			long seed,
+			int dimensionId,
+			String dimensionKey,
+			int blockX,
+			int blockZ,
+			int width,
+			int height) throws MinecraftInterfaceException {
 		validateStructureArea(width, height);
 		Response response = exchange(Request.structures(
 				token,
 				seed,
 				dimensionId,
+				dimensionKey,
 				blockX,
 				blockZ,
 				width,
@@ -161,12 +286,31 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 				token,
 				seed,
 				dimensionId,
+				null,
 				blockX,
 				blockZ,
 				width,
 				height,
 				true));
 		return toStructureDescriptors(response);
+	}
+
+	@Override
+	public int importJourneyMapWaypoints(
+			int dimensionId,
+			List<GtnhWaypoint> waypoints) throws MinecraftInterfaceException {
+		if (waypoints == null || waypoints.isEmpty()) {
+			return 0;
+		}
+		if (waypoints.size() > 2_000) {
+			throw new MinecraftInterfaceException(
+					"direct JourneyMap import is limited to 2,000 waypoints per operation");
+		}
+		Response response = exchange(Request.importWaypoints(
+				token,
+				dimensionId,
+				waypoints.toArray(GtnhWaypoint[]::new)));
+		return response.importedWaypoints;
 	}
 
 	private static List<GtnhStructureDescriptor> toStructureDescriptors(Response response) {
@@ -203,6 +347,22 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private Response exchange(Request request) throws MinecraftInterfaceException {
+		while (true) {
+			awaitRecovery();
+			try {
+				return exchangeOnce(request);
+			} catch (IOException e) {
+				if (!waitForWorker) {
+					throw new MinecraftInterfaceException(
+							"unable to communicate with GTNH biome worker at " + host + ":" + port,
+							e);
+				}
+				recoverConnection(e);
+			}
+		}
+	}
+
+	private Response exchangeOnce(Request request) throws IOException, MinecraftInterfaceException {
 		try (Socket socket = new Socket()) {
 			socket.connect(new InetSocketAddress(host, port), timeoutMillis);
 			socket.setSoTimeout(timeoutMillis);
@@ -236,10 +396,82 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 				}
 				return response;
 			}
-		} catch (IOException | JsonParseException e) {
+		} catch (JsonParseException e) {
 			throw new MinecraftInterfaceException(
-					"unable to communicate with GTNH biome worker at " + host + ":" + port,
+					"GTNH worker returned an invalid response",
 					e);
+		}
+	}
+
+	private void awaitRecovery() throws MinecraftInterfaceException {
+		synchronized (availabilityMonitor) {
+			while (offline) {
+				try {
+					availabilityMonitor.wait();
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					throw new MinecraftInterfaceException(
+							"interrupted while waiting for the GTNH client to start",
+							e);
+				}
+			}
+		}
+	}
+
+	private void recoverConnection(IOException initialFailure) throws MinecraftInterfaceException {
+		boolean recoveryOwner = false;
+		synchronized (availabilityMonitor) {
+			if (!offline) {
+				offline = true;
+				recoveryOwner = true;
+			}
+		}
+		if (!recoveryOwner) {
+			awaitRecovery();
+			return;
+		}
+
+		AmidstLogger.warn(
+				initialFailure,
+				"GTNH client at {}:{} is unavailable; pausing requests until it returns",
+				host,
+				port);
+		try {
+			offlineNotifier.run();
+		} catch (RuntimeException e) {
+			AmidstLogger.warn(e, "Unable to display the GTNH client status notification");
+		}
+		while (true) {
+			try {
+				exchangeOnce(Request.hello(token));
+				finishRecovery();
+				AmidstLogger.info("GTNH client at {}:{} is available again; resuming requests", host, port);
+				return;
+			} catch (IOException e) {
+				waitBeforeRetry();
+			} catch (MinecraftInterfaceException e) {
+				finishRecovery();
+				throw e;
+			}
+		}
+	}
+
+	private void waitBeforeRetry() throws MinecraftInterfaceException {
+		try {
+			Thread.sleep(retryDelayMillis);
+		} catch (InterruptedException e) {
+			finishRecovery();
+			Thread.currentThread().interrupt();
+			throw new MinecraftInterfaceException(
+					"interrupted while waiting for the GTNH client to start",
+					e);
+		}
+	}
+
+	private void finishRecovery() {
+		synchronized (availabilityMonitor) {
+			offline = false;
+			availabilityMonitor.notifyAll();
 		}
 	}
 
@@ -249,12 +481,15 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		private String token;
 		private long seed;
 		private int dimension;
+		private String dimensionKey;
 		private int x;
 		private int z;
 		private int width;
 		private int height;
 		private int step;
+		private long sinceRevision;
 		private boolean vanillaDungeonsOnly;
+		private GtnhWaypoint[] waypoints;
 
 		private static Request hello(String token) {
 			Request request = new Request();
@@ -264,10 +499,20 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			return request;
 		}
 
+		private static Request worldState(String token, long sinceRevision) {
+			Request request = new Request();
+			request.protocol = PROTOCOL_VERSION;
+			request.command = "world_state";
+			request.token = token;
+			request.sinceRevision = sinceRevision;
+			return request;
+		}
+
 		private static Request biomes(
 				String token,
 				long seed,
 				int dimension,
+				String dimensionKey,
 				int x,
 				int z,
 				int width,
@@ -279,6 +524,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			request.token = token;
 			request.seed = seed;
 			request.dimension = dimension;
+			request.dimensionKey = dimensionKey;
 			request.x = x;
 			request.z = z;
 			request.width = width;
@@ -301,6 +547,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 				String token,
 				long seed,
 				int dimension,
+				String dimensionKey,
 				int x,
 				int z,
 				int width,
@@ -312,11 +559,25 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			request.token = token;
 			request.seed = seed;
 			request.dimension = dimension;
+			request.dimensionKey = dimensionKey;
 			request.x = x;
 			request.z = z;
 			request.width = width;
 			request.height = height;
 			request.vanillaDungeonsOnly = vanillaDungeonsOnly;
+			return request;
+		}
+
+		private static Request importWaypoints(
+				String token,
+				int dimension,
+				GtnhWaypoint[] waypoints) {
+			Request request = new Request();
+			request.protocol = PROTOCOL_VERSION;
+			request.command = "import_waypoints";
+			request.token = token;
+			request.dimension = dimension;
+			request.waypoints = waypoints;
 			return request;
 		}
 	}
@@ -340,11 +601,20 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		private int plutoDimensionId;
 		private int mehenBeltDimensionId;
 		private int ross128bDimensionId;
+		private int barnardaCDimensionId;
+		private int deepDarkDimensionId;
+		private int anubisDimensionId;
+		private int horusDimensionId;
 		private BiomeDescriptor[] biomes;
 		private int[] ids;
 		private StructureDescriptor[] structures;
 		private int spawnX;
 		private int spawnZ;
+		private int importedWaypoints;
+		private long worldRevision;
+		private boolean fullRefresh;
+		private int[] chunkXs;
+		private int[] chunkZs;
 	}
 
 	private static final class BiomeDescriptor {

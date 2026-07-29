@@ -92,6 +92,25 @@ public class GtnhBiomeColorPaletteTest {
 	}
 
 	@Test
+	public void barnardaCBiomesUseDedicatedHighContrastPurplePalette() throws Exception {
+		GtnhWorkerInfo info = info(List.of(
+				biome(224, "BarnardaCShores", 0, "GALAXYSPACE"),
+				biome(225, "BarnardaCOceans", 0, "GALAXYSPACE"),
+				biome(226, "BarnardaCFlowers", 0, "GALAXYSPACE"),
+				biome(227, "BarnardaCLowPlains", 0, "GALAXYSPACE"),
+				biome(228, "BarnardaCHills", 0, "GALAXYSPACE")));
+
+		Map<Integer, BiomeColor> colors = GtnhBiomeColorPalette.create(info, null);
+
+		assertEquals("#32105F", hex(colors.get(224)));
+		assertEquals("#4B4FB5", hex(colors.get(225)));
+		assertEquals("#D02A9F", hex(colors.get(226)));
+		assertEquals("#7B3FA1", hex(colors.get(227)));
+		assertEquals("#777982", hex(colors.get(228)));
+		assertEquals(5, colors.values().stream().map(GtnhBiomeColorPaletteTest::hex).distinct().count());
+	}
+
+	@Test
 	public void oceanTagAndNameNeverTurnABiomeBlue() {
 		GtnhBiomeDescriptor taggedOcean = biome(42, "Deep Ocean", 0, "OCEAN");
 		GtnhBiomeDescriptor untagged = biome(42, "Deep Ocean", 0);

@@ -135,7 +135,11 @@ public class LayersMenu {
 				Dimension.PROTEUS,
 				Dimension.PLUTO,
 				Dimension.MEHEN_BELT,
-				Dimension.ROSS_128B
+				Dimension.ROSS_128B,
+				Dimension.BARNARDA_C,
+				Dimension.DEEP_DARK,
+				Dimension.ANUBIS,
+				Dimension.HORUS
 		}) {
 			if (viewerFacade.hasBiomeLayer(dimension)) {
 				Menus.radio(dimensionMenu, dimensionSetting, group, dimension);
@@ -227,18 +231,12 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createGtnhEndLayers() {
-		addGtnhEndStructureLayer(
-				settings.showGtnhHeeBiomeIslands,
-				GtnhEndStructureType.HEE_BIOME_ISLAND,
-				LayerIds.GTNH_HEE_BIOME_ISLAND);
-		addGtnhEndStructureLayer(
-				settings.showGtnhHeeDungeonTowers,
-				GtnhEndStructureType.HEE_DUNGEON_TOWER,
-				LayerIds.GTNH_HEE_DUNGEON_TOWER);
-		addGtnhEndStructureLayer(
-				settings.showGtnhDraconicChaosIslands,
-				GtnhEndStructureType.DRACONIC_CHAOS_ISLAND,
-				LayerIds.GTNH_DRACONIC_CHAOS_ISLAND);
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
+			addGtnhEndStructureLayer(
+					settings.getShowGtnhEndStructure(type),
+					type,
+					type.getLayerId());
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

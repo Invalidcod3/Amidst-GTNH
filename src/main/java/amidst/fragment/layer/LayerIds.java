@@ -69,6 +69,12 @@ public class LayerIds {
 	public static final int GTNH_MEHEN_DARK_MATTER_ASTEROID = 75;
 	public static final int GTNH_ROSS_128B_RUIN     = 76;
 	public static final int GTNH_ROSS_128B_ARSENOPYRITE_VEIN = 77;
-	public static final int NUMBER_OF_LAYERS        = 78;
+	public static final int GTNH_END_NAQUADAH_ASTEROID = 78;
+	public static final int GTNH_END_SCHEELITE_ASTEROID = 79;
+	public static final int GTNH_END_PLATINUM_ASTEROID = 80;
+	public static final int GTNH_DEEP_DARK_DUNGEON = 81;
+	public static final int GTNH_ANUBIS_ROBOT_VILLAGE = 82;
+	public static final int GTNH_HORUS_OBSIDIAN_PYRAMID = 83;
+	public static final int NUMBER_OF_LAYERS        = 84;
 	// @formatter:on
 }

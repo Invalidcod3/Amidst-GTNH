@@ -130,9 +130,16 @@ public class LayerBuilder {
 		declare(settings, declarations, enabledLayers, LayerIds.GTNH_NETHER_FORTRESS, Dimension.NETHER, false, settings.showNetherFortresses);
 		declare(settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND, Dimension.NETHER, false, settings.showGtnhTinkersNetherSlimeIslands);
 		declare(settings, declarations, enabledLayers, LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE, Dimension.NETHER, false, settings.showGtnhAutomagyNetherSpires);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_HEE_BIOME_ISLAND, Dimension.END, false, settings.showGtnhHeeBiomeIslands);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_HEE_DUNGEON_TOWER, Dimension.END, false, settings.showGtnhHeeDungeonTowers);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_DRACONIC_CHAOS_ISLAND, Dimension.END, false, settings.showGtnhDraconicChaosIslands);
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
+			declare(
+					settings,
+					declarations,
+					enabledLayers,
+					type.getLayerId(),
+					Dimension.END,
+					false,
+					settings.getShowGtnhEndStructure(type));
+		}
 		declare(settings, declarations, enabledLayers, LayerIds.GTNH_MOON_DUNGEON, Dimension.MOON, false, settings.showGtnhMoonDungeons);
 		declare(settings, declarations, enabledLayers, LayerIds.GTNH_MOON_VILLAGE, Dimension.MOON, false, settings.showGtnhMoonVillages);
 		for (GtnhTwilightForestFeatureType type :
@@ -223,9 +230,6 @@ public class LayerBuilder {
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_NETHER_FORTRESS), world.getGtnhNetherFortressProducer()),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND), world.getGtnhNetherStructureProducer(GtnhNetherStructureType.TINKERS_NETHER_SLIME_ISLAND)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE), world.getGtnhNetherStructureProducer(GtnhNetherStructureType.AUTOMAGY_NETHER_SPIRE)),
-				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_HEE_BIOME_ISLAND), world.getGtnhEndStructureProducer(GtnhEndStructureType.HEE_BIOME_ISLAND)),
-				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_HEE_DUNGEON_TOWER), world.getGtnhEndStructureProducer(GtnhEndStructureType.HEE_DUNGEON_TOWER)),
-				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_DRACONIC_CHAOS_ISLAND), world.getGtnhEndStructureProducer(GtnhEndStructureType.DRACONIC_CHAOS_ISLAND)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_MOON_DUNGEON), world.getGtnhMoonStructureProducer(GtnhMoonStructureType.MOON_DUNGEON)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_MOON_VILLAGE), world.getGtnhMoonStructureProducer(GtnhMoonStructureType.MOON_VILLAGE))
 		));
@@ -239,6 +243,11 @@ public class LayerBuilder {
 			result.add(new WorldIconLoader<>(
 					declarations.get(type.getLayerId()),
 					world.getGtnhSpaceStructureProducer(type)));
+		}
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
+			result.add(new WorldIconLoader<>(
+					declarations.get(type.getLayerId()),
+					world.getGtnhEndStructureProducer(type)));
 		}
 		return Collections.unmodifiableList(result);
 		// @formatter:on
@@ -291,9 +300,6 @@ public class LayerBuilder {
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_NETHER_FORTRESS), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE), zoom, worldIconSelection, settings.useHybridScaling),
-				new WorldIconDrawer(declarations.get(LayerIds.GTNH_HEE_BIOME_ISLAND), zoom, worldIconSelection, settings.useHybridScaling),
-				new WorldIconDrawer(declarations.get(LayerIds.GTNH_HEE_DUNGEON_TOWER), zoom, worldIconSelection, settings.useHybridScaling),
-				new WorldIconDrawer(declarations.get(LayerIds.GTNH_DRACONIC_CHAOS_ISLAND), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_MOON_DUNGEON), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_MOON_VILLAGE), zoom, worldIconSelection, settings.useHybridScaling)
 		));
@@ -306,6 +312,13 @@ public class LayerBuilder {
 					settings.useHybridScaling));
 		}
 		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
+			result.add(new WorldIconDrawer(
+					declarations.get(type.getLayerId()),
+					zoom,
+					worldIconSelection,
+					settings.useHybridScaling));
+		}
+		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
 			result.add(new WorldIconDrawer(
 					declarations.get(type.getLayerId()),
 					zoom,

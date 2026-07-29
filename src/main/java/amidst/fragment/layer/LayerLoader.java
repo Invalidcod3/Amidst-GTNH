@@ -50,6 +50,19 @@ public class LayerLoader {
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public void reloadBiomeLayers(Dimension dimension, Fragment fragment) {
+		for (FragmentLoader loader : loaders) {
+			int layerId = loader.getLayerId();
+			if (loader.isEnabled()
+					&& (layerId == LayerIds.BIOME_DATA
+							|| layerId == LayerIds.BACKGROUND
+							|| isInvalidated(layerId))) {
+				loader.reload(dimension, fragment);
+			}
+		}
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	private boolean isInvalidated(int layerId) {
 		return invalidatedLayers[layerId];
 	}

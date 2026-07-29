@@ -22,6 +22,8 @@ public class FragmentQueueProcessor {
 	private final LayerManager layerManager;
 	private final ThreadPoolExecutor fragWorkers;
 	private final Setting<Dimension> dimensionSetting;
+	private volatile long dimensionRevision;
+	private Dimension lastDimension;
 
 	@CalledByAny
 	public FragmentQueueProcessor(
@@ -41,7 +43,7 @@ public class FragmentQueueProcessor {
 		this.fragWorkers = fragWorkers;
 	}
 	
-	private static final int PARK_MILLIS = 1000;
+	private static final int PARK_MILLIS = 20;
 	
 	/**
 	 * It is important that the dimension setting is the same while a fragment
@@ -52,6 +54,11 @@ public class FragmentQueueProcessor {
 	public void processQueues() {
 		final Thread flThread = Thread.currentThread(); // the fragment loader thread
 		Dimension dimension = dimensionSetting.get();
+		if (lastDimension != dimension) {
+			lastDimension = dimension;
+			dimensionRevision++;
+		}
+		long revision = dimensionRevision;
 		updateLayerManager(dimension);
 		processRecycleQueue();
 		/*
@@ -63,14 +70,18 @@ public class FragmentQueueProcessor {
 		 * as possible.
 		 */
 		int maxSize = fragWorkers.getMaximumPoolSize();
-		while (loadingQueue.isEmpty() == false) {
+		while (loadingQueue.isEmpty() == false
+				&& revision == dimensionRevision
+				&& dimension.equals(dimensionSetting.get())) {
 			if (fragWorkers.getActiveCount() < maxSize) {
 				fragWorkers.execute(() -> {
 					Fragment f = loadingQueue.poll();
-					if (f != null && dimension.equals(dimensionSetting.get())) {
-						loadFragment(dimension, f);
-						updateLayerManager(dimension);
-						processRecycleQueue();
+					if (f != null) {
+						if (revision == dimensionRevision && dimension.equals(dimensionSetting.get())) {
+							loadFragment(dimension, revision, f);
+						} else if (!f.getState().equals(Fragment.State.UNINITIALIZED)) {
+							loadingQueue.offer(f);
+						}
 						LockSupport.unpark(flThread);
 					}
 				});
@@ -78,7 +89,27 @@ public class FragmentQueueProcessor {
 				LockSupport.parkNanos(PARK_MILLIS * 1000000); // if for some reason unpark was never called, unpark after time expires
 			}
 		}
+		if (revision != dimensionRevision || !dimension.equals(dimensionSetting.get())) {
+			return;
+		}
+		while (fragWorkers.getActiveCount() > 0 || !fragWorkers.getQueue().isEmpty()) {
+			if (!dimension.equals(dimensionSetting.get())) {
+				return;
+			}
+			LockSupport.parkNanos(PARK_MILLIS * 1000000);
+		}
+		processRecycleQueue();
 		layerManager.clearInvalidatedLayers();
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public void requestBiomeReloadForChunks(int[] chunkXs, int[] chunkZs) {
+		cache.reloadBiomeChunks(chunkXs, chunkZs);
+	}
+
+	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+	public void requestBiomeReloadAllUsed() {
+		cache.reloadBiomesAllUsed();
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
@@ -97,14 +128,39 @@ public class FragmentQueueProcessor {
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	private void loadFragment(Dimension dimension, Fragment fragment) {
-		if (fragment.getState().equals(Fragment.State.LOADED)) {
-			layerManager.reloadInvalidated(dimension, fragment);
-		} else if (!fragment.getState().equals(Fragment.State.UNINITIALIZED)
-				&& !fragment.getAndSetState(Fragment.State.LOADING).equals(Fragment.State.LOADING)) {
-			//If it's not loading, set loading and continue. If it is already loading, don't continue.
+	private void loadFragment(Dimension dimension, long revision, Fragment fragment) {
+		State initialState = fragment.getState();
+		if (initialState.equals(State.UNINITIALIZED)) {
+			return;
+		}
+		State previousState = fragment.getAndSetState(State.LOADING);
+		if (previousState.equals(State.LOADING)) {
+			return;
+		}
+		if (previousState.equals(State.UNINITIALIZED)) {
+			fragment.setState(State.UNINITIALIZED);
+			return;
+		}
+		boolean biomeReloadRequested = fragment.getAndClearBiomeReloadRequested();
+		if (previousState.equals(State.LOADED)
+				&& dimension.equals(fragment.getLoadedDimension())) {
+			if (biomeReloadRequested) {
+				layerManager.reloadBiomeLayers(dimension, fragment);
+			} else {
+				layerManager.reloadInvalidated(dimension, fragment);
+			}
+		} else {
 			layerManager.loadAll(dimension, fragment);
+		}
+		if (revision == dimensionRevision && dimension.equals(dimensionSetting.get())) {
+			fragment.setLoadedDimension(dimension);
 			fragment.setState(State.LOADED);
+			if (fragment.hasBiomeReloadRequested()) {
+				loadingQueue.offer(fragment);
+			}
+		} else {
+			fragment.setState(State.INITIALIZED);
+			loadingQueue.offer(fragment);
 		}
 	}
 
