@@ -63,4 +63,4 @@ Linux/macOS：
 
 worker 绑定本机回环地址(LocalHosts)，不会主动向外网开放服务。端口和共享口令可以在
 `amidstgtnhworker.cfg` 或对应的 JVM 参数中配置。
->>>>>>> f9ddb08d (Release 0.2.0)
+
