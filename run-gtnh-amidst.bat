@@ -1,7 +1,10 @@
 @echo off
 setlocal
 
-set "AMIDST_JAR=%~dp0build\release\amidst-gtnh-biomes-v0-1-v25.jar"
+rem Read the build filename from the same metadata Gradle uses.
+for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0src\main\resources\amidst\metadata.properties") do (
+    if "%%A"=="amidst.build.filename" set "AMIDST_JAR=%~dp0build\release\%%B.jar"
+)
 
 if not exist "%AMIDST_JAR%" (
     echo Amidst GTNH JAR was not found:
@@ -18,4 +21,8 @@ if defined AMIDST_JAVA_HOME (
     set "JAVA_COMMAND=java"
 )
 
-"%JAVA_COMMAND%" -jar "%AMIDST_JAR%" -gtnh-worker %*
+"%JAVA_COMMAND%" -jar "%AMIDST_JAR%" %*
+set "VIEWER_EXIT_CODE=%ERRORLEVEL%"
+rem With no arguments this is the double-click launcher: keep its output visible.
+if "%~1"=="" pause
+exit /b %VIEWER_EXIT_CODE%

@@ -51,6 +51,11 @@ final class SpaceDimensionSampler {
                 + ".WorldChunkManagerBarnardaC"
     };
 
+    private final Map<WorldChunkManager, ManagerBiomeCache> predictions = new java.util.IdentityHashMap<>();
+    private Ross128bBiomeRules rossRules;
+    private net.minecraft.world.WorldServer liveContext;
+    private WorldChunkManager liveManager;
+    private ManagerBiomeCache livePredictions;
     private final Map<ManagerKey, WorldChunkManager> managers =
             new LinkedHashMap<ManagerKey, WorldChunkManager>(16, 0.75F, true) {
 
@@ -58,6 +63,7 @@ final class SpaceDimensionSampler {
                 protected boolean removeEldestEntry(
                         Map.Entry<ManagerKey, WorldChunkManager> eldest) {
                     if (size() > MAX_CACHED_MANAGERS) {
+                        predictions.remove(eldest.getValue());
                         eldest.getValue().cleanupCache();
                         return true;
                     }
@@ -211,6 +217,10 @@ final class SpaceDimensionSampler {
             return result;
         }
 
+        boolean ross = matches(dimensionKey, "bartworks:ross128b", dimension, ross128bDimensionId());
+        boolean deepDark = matches(dimensionKey, "extrautilities:deep_dark", dimension, deepDarkDimensionId());
+        net.minecraft.world.WorldServer world = net.minecraftforge.common.DimensionManager.getWorld(dimension);
+        boolean useLive = (ross || deepDark) && world != null && world.getWorldInfo().getSeed() == seed;
         WorldChunkManager manager;
         if (matches(dimensionKey, "galaxyspace:io", dimension, ioDimensionId())) {
             manager = getManager(
@@ -246,11 +256,27 @@ final class SpaceDimensionSampler {
             throw new IllegalArgumentException(
                     "biome prediction does not support space dimension " + dimension);
         }
+        ManagerBiomeCache cache;
+        if (useLive) {
+            if (liveContext != world || liveManager != world.getWorldChunkManager()) {
+                liveContext = world;
+                liveManager = world.getWorldChunkManager();
+                livePredictions = new ManagerBiomeCache(liveManager);
+            }
+            cache = livePredictions;
+        } else {
+            cache = predictions.get(manager);
+        }
+        if (cache == null) {
+            cache = new ManagerBiomeCache(manager);
+            predictions.put(manager, cache);
+        }
+        if (ross && rossRules == null) rossRules = Ross128bBiomeRules.fromRuntime();
         for (int row = 0; row < height; row++) {
             int sampleZ = z + row * step;
             for (int column = 0; column < width; column++) {
                 int sampleX = x + column * step;
-                BiomeGenBase biome = manager.getBiomeGenAt(sampleX, sampleZ);
+                BiomeGenBase biome = cache.getBiomeAt(sampleX, sampleZ);
                 if (biome == null) {
                     throw new IllegalStateException(
                             "space biome manager returned no biome at "
@@ -258,6 +284,11 @@ final class SpaceDimensionSampler {
                                     + ","
                                     + sampleZ);
                 }
+                if (ross) biome = rossRules.apply(biome);
+                // Read existing chunks only; never load/generate terrain for a map.
+                // Loaded truth already includes substitutions and player/mod edits.
+                if (useLive && world.blockExists(sampleX, 0, sampleZ))
+                    biome = world.getBiomeGenForCoords(sampleX, sampleZ);
                 result[row * width + column] =
                         displayBiomeId(dimensionKey, biome.biomeID);
             }
@@ -270,6 +301,10 @@ final class SpaceDimensionSampler {
             manager.cleanupCache();
         }
         managers.clear();
+        predictions.clear();
+        liveContext = null;
+        liveManager = null;
+        livePredictions = null;
     }
 
     private static BiomeGenBase singleBiome(String dimensionKey, int dimension) {
@@ -487,15 +522,21 @@ final class SpaceDimensionSampler {
     }
 
     private WorldChunkManager getVanillaManager(long seed, String purpose) {
-        String className = WorldChunkManager.class.getName() + ":" + purpose;
+        // Galacticraft and Extra Utilities both construct WorldChunkManager(World).
+        // Reproduce that world's terrain type, rather than forcing DEFAULT.
+        net.minecraft.world.WorldServer world = net.minecraftforge.common.DimensionManager.getWorld(0);
+        WorldType type = world != null && world.getWorldInfo().getSeed() == seed
+                ? world.getWorldInfo().getTerrainType() : WorldType.parseWorldType("RWG");
+        if (type == null) type = WorldType.DEFAULT;
+        String className = WorldChunkManager.class.getName() + ":" + purpose + ":" + type.getWorldTypeName();
         ManagerKey key = new ManagerKey(className, seed);
         WorldChunkManager manager = managers.get(key);
         if (manager == null) {
-            manager = new WorldChunkManager(seed, WorldType.DEFAULT);
+            manager = new WorldChunkManager(seed, type);
             managers.put(key, manager);
             AmidstGtnhWorkerLog.LOG.info(
-                    "Prepared Ross 128b biome preview context for seed {}",
-                    Long.valueOf(seed));
+                    "Prepared {} biome preview context for seed {}, world type {}",
+                    purpose, Long.valueOf(seed), type.getWorldTypeName());
         }
         return manager;
     }

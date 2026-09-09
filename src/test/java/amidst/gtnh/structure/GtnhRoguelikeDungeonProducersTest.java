@@ -40,7 +40,8 @@ public class GtnhRoguelikeDungeonProducersTest {
 		List<WorldIcon> meteorites =
 				producers.get(GtnhOverworldStructureType.AE2_METEORITE).getAt(corner, null);
 
-		assertEquals(1, source.queryCount);
+		assertEquals(2, source.queryCount);
+        assertEquals(List.of("standard", "thaumcraft"), source.groups);
 		assertEquals(987654321L, source.seed);
 		assertEquals(-512, source.x);
 		assertEquals(1024, source.z);
@@ -231,6 +232,13 @@ public class GtnhRoguelikeDungeonProducersTest {
 	}
 
 	private static final class RecordingSource implements GtnhBiomeSource {
+		private final List<String> groups = new java.util.ArrayList<>();
+        @Override
+        public List<GtnhStructureDescriptor> sampleStructureGroup(long seed, int dimensionId,
+                String dimensionKey, int x, int z, int width, int height, String group) {
+            groups.add(group);
+            return sampleStructures(seed, dimensionId, x, z, width, height);
+        }
 		private int queryCount;
 		private long seed;
 		private int x;

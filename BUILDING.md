@@ -66,7 +66,23 @@ from JitPack.
 
 The Amidst release filename is controlled by
 `src/main/resources/amidst/metadata.properties`. A filename ending in `-vNN`
-produces the matching worker filename `amidst-gtnh-worker-vNN.jar`.
+or `-v0.3` produces the matching worker filename, such as
+`amidst-gtnh-worker-v0.3.jar`. `amidst.release.version` controls both Gradle
+project versions. Keep the worker's `@Mod` version in sync with it.
+The Viewer retains the upstream Amidst version and appends the GTNH release
+version in `amidst.version.preReleaseSuffix`.
+
+After `assembleRelease`, package the release from the repository root using
+PowerShell 7:
+
+```powershell
+./tools/Package-Release.ps1
+```
+
+This creates the ZIP, installation instructions, source manifest and SHA-256
+checksums under `build/`. It checks test reports, JAR versions and ZIP contents.
+Release notes are maintained in `docs/release-v0.3.md`. No Git tag or remote
+release is created by this script.
 
 The worker protocol number is intentionally declared on both sides:
 
@@ -88,3 +104,10 @@ cd gtnh-worker
 Install `gtnh-worker/build/release/amidst-gtnh-worker.jar`. The stable staging
 name avoids confusing the installable reobfuscated JAR with `-dev`, sources,
 javadoc, or stale branch artifacts in `build/libs/`.
+
+`stageReleaseJar` now runs the worker's network tests and verifies the actual
+staged archive. It must match `reobfJar` and contain Minecraft runtime (SRG)
+member references; the developer archive must fail that check. A successful
+`reobfJar` task alone does not prove that the correct file was staged.
+See [Worker troubleshooting](docs/worker-troubleshooting.md) for the v25
+packaging regression, source entry points and in-game verification steps.

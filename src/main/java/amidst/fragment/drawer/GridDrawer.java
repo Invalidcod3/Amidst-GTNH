@@ -14,7 +14,7 @@ import amidst.mojangapi.world.coordinates.Resolution;
 
 @NotThreadSafe
 public class GridDrawer extends FragmentDrawer {
-	private static final Font DRAW_FONT = new Font("arial", Font.BOLD, 16);
+	private static final Font DRAW_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 16);
 
 	private final StringBuffer textBuffer = new StringBuffer(128);
 	private final char[] textCache = new char[128];

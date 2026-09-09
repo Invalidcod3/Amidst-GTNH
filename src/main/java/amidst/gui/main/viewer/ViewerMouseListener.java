@@ -16,6 +16,8 @@ import amidst.gui.main.viewer.widget.WidgetManager;
 
 @NotThreadSafe
 public class ViewerMouseListener implements MouseListener, MouseWheelListener {
+    private amidst.gtnh.prospecting.ProspectingOverlay prospecting;
+    public void setProspecting(amidst.gtnh.prospecting.ProspectingOverlay overlay) { prospecting = overlay; }
 	private final WidgetManager widgetManager;
 	private final FragmentGraph graph;
 	private final FragmentGraphToScreenTranslator translator;
@@ -56,6 +58,7 @@ public class ViewerMouseListener implements MouseListener, MouseWheelListener {
 		if (isRightClick(e)) {
 			// noop
 		} else if (!widgetManager.mouseClicked(mousePosition)) {
+            if (prospecting != null && prospecting.click(e)) return;
 			doMouseClicked(mousePosition);
 		}
 	}

@@ -54,7 +54,8 @@ public class AmidstMenu {
 				if(element instanceof JMenuItem) {
 					if(!doOnAll) {
 						for(String s : textRepresentations) {
-							if(((JMenuItem) element).getText().equals(s)) {
+							if(((JMenuItem) element).getText().equals(amidst.i18n.I18n.text(s))
+                                    || s.equals(((JMenuItem) element).getClientProperty("amidst.i18n.key"))) {
 								consumer.accept((JMenuItem) element);
 							}
 						}

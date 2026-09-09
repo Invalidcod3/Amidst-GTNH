@@ -59,6 +59,7 @@ public class AmidstMenuBuilder {
 		result.add(create_Layers());
 		result.add(create_Settings());
 		result.add(create_Help());
+        amidst.i18n.I18n.localize(result);
 		return result;
 	}
 
@@ -73,7 +74,9 @@ public class AmidstMenuBuilder {
 		}
 		Menus.item(result, actions::openSaveGame,          "Open Save Game ...",         KeyEvent.VK_O, MenuShortcuts.OPEN_SAVE_GAME);
 		result.addSeparator();
-		Menus.item(result, actions::switchProfile,         "Switch Profile ...",         KeyEvent.VK_P, MenuShortcuts.SWITCH_PROFILE);
+		if (actions.canSwitchProfile()) {
+			Menus.item(result, actions::switchProfile,     "Switch Profile ...",         KeyEvent.VK_P, MenuShortcuts.SWITCH_PROFILE);
+		}
 		Menus.item(result, actions::exit,                  "Exit",                       KeyEvent.VK_X, MenuShortcuts.EXIT);
 		// @formatter:on
 		return result;
@@ -118,6 +121,9 @@ public class AmidstMenuBuilder {
 
 	private JMenu create_Settings() {
 		JMenu result = new JMenu("Settings");
+        JMenu languages = new JMenu("Language / 语言");
+        Menus.radios(languages,settings.language.withListener((a,b) -> amidst.i18n.I18n.setLanguage(b)),amidst.i18n.Language.values());
+        result.add(languages);
 		result.setMnemonic(KeyEvent.VK_S);
 		result.add(create_Settings_DefaultWorldType());
 		if (biomeProfileDirectory.isValid()) {

@@ -7,63 +7,65 @@ import amidst.documentation.NotThreadSafe;
 import amidst.fragment.Fragment;
 import amidst.fragment.loader.FragmentLoader;
 import amidst.mojangapi.world.Dimension;
+import amidst.threading.TaskCancellation;
 
 @NotThreadSafe
 public class LayerLoader {
 	private final Iterable<FragmentLoader> loaders;
-	private final boolean[] invalidatedLayers;
+	private final long[] revisions;
 
 	@CalledByAny
 	public LayerLoader(Iterable<FragmentLoader> loaders, int numberOfLayers) {
 		this.loaders = loaders;
-		this.invalidatedLayers = new boolean[numberOfLayers];
-	}
-
-	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	public void clearInvalidatedLayers() {
-		for (int i = 0; i < invalidatedLayers.length; i++) {
-			invalidatedLayers[i] = false;
-		}
+		this.revisions = new long[numberOfLayers];
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void invalidateLayer(int layerId) {
-		invalidatedLayers[layerId] = true;
+		revisions[layerId]++;
+	}
+
+	/** Called before submission, even if the task is cancelled before its first layer. */
+	public void prepareFragment(Fragment fragment, boolean reloadBiomes) {
+		for (FragmentLoader loader : loaders) {
+			int id = loader.getLayerId();
+			if (fragment.getLayerRevision(id) != revisions[id]
+					|| (reloadBiomes && (id == LayerIds.BIOME_DATA || id == LayerIds.BACKGROUND))) {
+				fragment.invalidateLayerData(id);
+			}
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void loadAll(Dimension dimension, Fragment fragment) {
 		for (FragmentLoader loader : loaders) {
-			if (loader.isEnabled()) {
+			TaskCancellation.check();
+			int id = loader.getLayerId();
+			if (loader.isEnabled() && !fragment.hasLayerData(id)) {
 				loader.load(dimension, fragment);
+				fragment.markLayerComplete(id, revisions[id]);
 			}
 		}
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void reloadInvalidated(Dimension dimension, Fragment fragment) {
-		for (FragmentLoader loader : loaders) {
-			if (loader.isEnabled() && isInvalidated(loader.getLayerId())) {
-				loader.reload(dimension, fragment);
-			}
-		}
+		reloadMissing(dimension, fragment);
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void reloadBiomeLayers(Dimension dimension, Fragment fragment) {
-		for (FragmentLoader loader : loaders) {
-			int layerId = loader.getLayerId();
-			if (loader.isEnabled()
-					&& (layerId == LayerIds.BIOME_DATA
-							|| layerId == LayerIds.BACKGROUND
-							|| isInvalidated(layerId))) {
-				loader.reload(dimension, fragment);
-			}
-		}
+		reloadMissing(dimension, fragment);
 	}
 
-	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	private boolean isInvalidated(int layerId) {
-		return invalidatedLayers[layerId];
+	private void reloadMissing(Dimension dimension, Fragment fragment) {
+		for (FragmentLoader loader : loaders) {
+			TaskCancellation.check();
+			int id = loader.getLayerId();
+			if (loader.isEnabled() && !fragment.hasLayerData(id)) {
+				loader.reload(dimension, fragment);
+				fragment.markLayerComplete(id, revisions[id]);
+			}
+		}
 	}
 }

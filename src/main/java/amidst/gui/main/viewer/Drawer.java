@@ -26,6 +26,8 @@ import amidst.settings.Setting;
 
 @NotThreadSafe
 public class Drawer {
+    private amidst.gtnh.prospecting.ProspectingOverlay prospecting;
+    public void setProspecting(amidst.gtnh.prospecting.ProspectingOverlay overlay) { prospecting = overlay; }
 	private static final BufferedImage DROP_SHADOW_BOTTOM_LEFT = ResourceLoader
 			.getImage("/amidst/gui/main/dropshadow/inner_bottom_left.png");
 	private static final BufferedImage DROP_SHADOW_BOTTOM_RIGHT = ResourceLoader
@@ -170,6 +172,7 @@ public class Drawer {
 		g2d = (Graphics2D) g2d.create();
 		doDrawFragments();
 		g2d = old;
+        if (prospecting != null) prospecting.draw(g2d, viewerWidth, viewerHeight, mousePosition);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -193,6 +196,7 @@ public class Drawer {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawLayers() {
 		Dimension displayedDimension = dimensionSetting.get();
+        if (displayedDimension.isProspectingOnly()) return;
 		for (FragmentDrawer drawer : drawers) {
 			if (drawer.isEnabled()) {
 				initLayerMatrix();
@@ -202,8 +206,7 @@ public class Drawer {
 						setAlphaComposite(1.0f);
 						g2d.setTransform(layerMatrix);
 						drawer.draw(fragment, g2d, time);
-					} else if (fragment.getState().equals(Fragment.State.LOADED)
-							&& displayedDimension.equals(fragment.getLoadedDimension())) {
+                    } else if (fragment.hasDisplayLayer(displayedDimension, drawer.getLayerId())) {
 						setAlphaComposite(fragment.getAlpha());
 						g2d.setTransform(layerMatrix);
 						drawer.draw(fragment, g2d, time);

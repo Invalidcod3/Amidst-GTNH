@@ -33,6 +33,7 @@ public class FragmentGraphToScreenTranslator {
 		this.viewerWidth = viewerWidth;
 		this.viewerHeight = viewerHeight;
 		centerOnOriginIfNecessary();
+		graph.setViewport(screenToWorld(new Point(0, 0)), screenToWorld(new Point(viewerWidth, viewerHeight)));
 		adjustNumberOfRowsAndColumns();
 	}
 
@@ -139,4 +140,10 @@ public class FragmentGraphToScreenTranslator {
 				(long) zoom.screenToWorld(pointOnScreen.x - leftOnScreen),
 				(long) zoom.screenToWorld(pointOnScreen.y - topOnScreen));
 	}
+
+    public Point worldToScreen(long x, long z) {
+        CoordinatesInWorld corner = graph.getCorner();
+        return new Point((int)Math.round(leftOnScreen + zoom.worldToScreen(x - corner.getX())),
+                (int)Math.round(topOnScreen + zoom.worldToScreen(z - corner.getY())));
+    }
 }

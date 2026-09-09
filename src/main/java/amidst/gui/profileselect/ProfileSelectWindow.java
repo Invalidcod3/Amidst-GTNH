@@ -57,7 +57,7 @@ public class ProfileSelectWindow {
 		frame.getContentPane().setLayout(new MigLayout());
 
 		JLabel title = new JLabel("Please select a Minecraft profile:", SwingConstants.CENTER);
-		title.setFont(new Font("arial", Font.BOLD, 16));
+		title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
 		frame.add(title, "h 20!,w :400:, growx, pushx, wrap");
 
 		ProfileSelectPanel profileSelectPanel = new ProfileSelectPanel(settings.lastProfile);

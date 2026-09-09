@@ -26,7 +26,8 @@ public final class GtnhRoguelikeDungeonProducers {
 	private final GtnhMinecraftInterface minecraftInterface;
 	private final long seed;
 	private final CoordinatesInWorld worldSpawn;
-	private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> cache;
+    private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> cache;
+    private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> thaumcraftCache = createFragmentCache();
 	private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> netherCache;
 	private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> endCache;
 	private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> moonCache;
@@ -46,6 +47,18 @@ public final class GtnhRoguelikeDungeonProducers {
 	public static GtnhRoguelikeDungeonProducers empty() {
 		return new GtnhRoguelikeDungeonProducers();
 	}
+
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(Dimension dimension, int x, int z,
+            int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws MinecraftInterfaceException {
+        return minecraftInterface.prospectFiltered(seed, dimension, x, z, width, height, mode, filter);
+    }
+    public java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() {
+        return minecraftInterface == null ? List.of() : minecraftInterface.prospectingCatalog();
+    }
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospect(Dimension dimension, int x, int z,
+            int width, int height, String mode) throws MinecraftInterfaceException {
+        return minecraftInterface.prospect(seed, dimension, x, z, width, height, mode);
+    }
 
 	public GtnhRoguelikeDungeonProducers(GtnhMinecraftInterface minecraftInterface, long seed) {
 		this(minecraftInterface, seed, null);
@@ -251,10 +264,15 @@ public final class GtnhRoguelikeDungeonProducers {
 				});
 	}
 
-	private List<GtnhStructureDescriptor> getStructures(
-			CoordinatesInWorld corner,
-			Dimension dimension,
-			boolean vanillaDungeonsOnly) {
+    private List<GtnhStructureDescriptor> getStructures(
+            CoordinatesInWorld corner,
+            Dimension dimension,
+            boolean vanillaDungeonsOnly) {
+        return getStructures(corner, dimension, vanillaDungeonsOnly, false);
+    }
+
+    private List<GtnhStructureDescriptor> getStructures(CoordinatesInWorld corner,
+            Dimension dimension, boolean vanillaDungeonsOnly, boolean thaumcraft) {
 		if (minecraftInterface == null) {
 			return List.of();
 		}
@@ -271,7 +289,8 @@ public final class GtnhRoguelikeDungeonProducers {
 												? moonCache
 										: dimension == Dimension.TWILIGHT_FOREST
 												? twilightForestCache
-												: cache;
+                        : cache;
+        if (thaumcraft) selectedCache = thaumcraftCache;
 		List<GtnhStructureDescriptor> cached = selectedCache.get(corner);
 		if (cached != null) {
 			return cached;
@@ -288,13 +307,14 @@ public final class GtnhRoguelikeDungeonProducers {
 									z,
 									Fragment.SIZE,
 									Fragment.SIZE)
-							: minecraftInterface.sampleStructures(
+                            : minecraftInterface.sampleStructureGroup(
 							seed,
 							dimension,
 							x,
 							z,
 							Fragment.SIZE,
-							Fragment.SIZE));
+                            Fragment.SIZE,
+                            dimension == Dimension.OVERWORLD ? (thaumcraft ? "thaumcraft" : "standard") : null));
 			selectedCache.put(corner, loaded);
 			return loaded;
 		} catch (MinecraftInterfaceException e) {
@@ -373,7 +393,8 @@ public final class GtnhRoguelikeDungeonProducers {
 			boolean vanillaDungeonsOnly =
 					type == GtnhOverworldStructureType.VANILLA_SPAWNER_DUNGEON;
 			for (GtnhStructureDescriptor structure :
-					getStructures(corner, Dimension.OVERWORLD, vanillaDungeonsOnly)) {
+                    getStructures(corner, Dimension.OVERWORLD, vanillaDungeonsOnly,
+                            type.getWireName().startsWith("THAUMCRAFT_"))) {
 				if (!type.getWireName().equals(structure.kind())) {
 					continue;
 				}

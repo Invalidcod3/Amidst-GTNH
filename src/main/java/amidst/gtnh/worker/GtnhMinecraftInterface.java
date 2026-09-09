@@ -45,6 +45,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 					Dimension.TWILIGHT_FOREST));
 
 	private final GtnhBiomeSource source;
+    private final java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
 	private final GtnhWorkerInfo workerInfo;
 	private final BiomeList biomeList;
 	private final Set<Integer> biomeIds;
@@ -70,6 +71,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 			throws MinecraftInterfaceException {
 		this.source = source;
 		this.workerInfo = source.getWorkerInfo();
+        this.prospectingDimensions = source.prospectingCatalog();
 		if (!"RWG".equalsIgnoreCase(workerInfo.worldType())) {
 			throw new MinecraftInterfaceException(
 					"GTNH biome worker world type is "
@@ -104,6 +106,18 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		return workerInfo;
 	}
 
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(long seed, Dimension dimension, int x, int z,
+            int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws MinecraftInterfaceException {
+        return source.prospectFiltered(seed, toWorkerDimensionId(dimension), x, z, width, height, mode, filter);
+    }
+    public java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() {
+        return prospectingDimensions;
+    }
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospect(long seed, Dimension dimension, int x, int z,
+            int width, int height, String mode) throws MinecraftInterfaceException {
+        return source.prospect(seed, toWorkerDimensionId(dimension), x, z, width, height, mode);
+    }
+
 	public GtnhWorldState getWorldState(long sinceRevision)
 			throws MinecraftInterfaceException {
 		return source.getWorldState(sinceRevision);
@@ -134,7 +148,13 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 				height);
 	}
 
-	public List<GtnhStructureDescriptor> sampleVanillaDungeons(
+    public List<GtnhStructureDescriptor> sampleStructureGroup(long seed, Dimension dimension,
+            int x, int z, int width, int height, String group) throws MinecraftInterfaceException {
+        return source.sampleStructureGroup(seed, toWorkerDimensionId(dimension), dimension.getName(),
+                x, z, width, height, group);
+    }
+
+    public List<GtnhStructureDescriptor> sampleVanillaDungeons(
 			long seed,
 			int dimensionId,
 			int blockX,
@@ -151,6 +171,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 	}
 
 	public int toWorkerDimensionId(Dimension dimension) {
+        for (var d : prospectingDimensions) if (dimension.prospectingKey().equals(d.key)) return d.id;
 		return switch (dimension) {
 			case TWILIGHT_FOREST -> workerInfo.twilightForestDimensionId();
 			case MOON -> workerInfo.moonDimensionId();

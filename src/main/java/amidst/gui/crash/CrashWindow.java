@@ -101,7 +101,7 @@ public enum CrashWindow {
 	private JTextArea createLogMessagesTextArea() {
 		JTextArea result = new JTextArea();
 		result.setEditable(false);
-		result.setFont(new Font("arial", Font.PLAIN, 10));
+		result.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
 		return result;
 	}
 

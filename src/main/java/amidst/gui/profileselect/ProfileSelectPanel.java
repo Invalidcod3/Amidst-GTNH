@@ -54,7 +54,7 @@ public class ProfileSelectPanel {
 				g2d.fillRect(0, 0, getWidth(), getHeight());
 				if (profileComponents.isEmpty()) {
 					g2d.setColor(Color.gray);
-					g2d.setFont(new Font("arial", Font.BOLD, 30));
+					g2d.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 30));
 					if (!oldEmptyMessage.equals(emptyMessage) || emptyMessageWidth == INVALID_EMPTY_MESSAGE_WIDTH) {
 						emptyMessageWidth = g2d.getFontMetrics().stringWidth(emptyMessage);
 					}

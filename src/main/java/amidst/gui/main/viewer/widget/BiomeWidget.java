@@ -182,7 +182,7 @@ public class BiomeWidget extends Widget {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawTextHighlightBiomes(Graphics2D g2d) {
-		g2d.drawString("Highlight Biomes", getX() + 10, getY() + 20);
+		g2d.drawString(amidst.i18n.I18n.text("Highlight Biomes"), getX() + 10, getY() + 20);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -260,7 +260,7 @@ public class BiomeWidget extends Widget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawTextSelect(Graphics2D g2d) {
 		g2d.setColor(Color.white);
-		g2d.drawString("Select:", getX() + 8, getY() + getHeight() - 10);
+		g2d.drawString(amidst.i18n.I18n.text("Select:"), getX() + 8, getY() + getHeight() - 10);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -268,7 +268,7 @@ public class BiomeWidget extends Widget {
 		g2d.setColor(SELECT_BUTTON_COLOR);
 		String activeText = biomeSelection.isHighlightMode() ? "Active" : "Inactive";
 		g2d.drawString(activeText, getX() + getWidth() - 65, getY() + 20);
-		g2d.drawString("All  Special  None", getX() + 120, getY() + getHeight() - 10);
+		g2d.drawString(amidst.i18n.I18n.text("All  Special  None"), getX() + 120, getY() + getHeight() - 10);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

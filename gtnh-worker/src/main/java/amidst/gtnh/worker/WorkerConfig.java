@@ -7,6 +7,7 @@ import net.minecraftforge.common.config.Configuration;
 final class WorkerConfig {
 
     static final int DEFAULT_PORT = 47117;
+    static final boolean DEFAULT_ENABLED = true;
 
     final boolean enabled;
     final int port;
@@ -18,8 +19,9 @@ final class WorkerConfig {
         boolean configuredEnabled = config.getBoolean(
                 "enabled",
                 "worker",
-                true,
-                "Enable the loopback-only Amidst biome worker.");
+                DEFAULT_ENABLED,
+                "Enable the loopback-only Amidst biome worker. Enabled on the first launch by default; "
+                        + "no restart is needed to create the initial configuration.");
         int configuredPort = config.getInt(
                 "port",
                 "worker",

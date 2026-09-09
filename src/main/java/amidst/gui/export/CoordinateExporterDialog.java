@@ -35,6 +35,9 @@ import amidst.gtnh.export.GtnhCoordinate;
 import amidst.gtnh.export.GtnhCoordinateFiles;
 import amidst.gtnh.export.GtnhCoordinateLocator;
 import amidst.gtnh.export.GtnhCoordinateType;
+import amidst.gtnh.export.ProspectingExport;
+import amidst.i18n.I18n;
+import amidst.AmidstSettings;
 import amidst.logging.AmidstLogger;
 import amidst.mojangapi.world.Dimension;
 import amidst.mojangapi.world.World;
@@ -44,6 +47,11 @@ public final class CoordinateExporterDialog {
 	private static final int DIRECT_IMPORT_LIMIT = 2_000;
 
 	private final World world;
+    private final AmidstSettings settings;
+    private final JPanel conditions = new JPanel(new BorderLayout());
+    private JLabel conditionsLabel;
+    private ProspectingExportPanel exportOptions;
+    private volatile boolean reachedLimit;
 	private final JDialog dialog;
 	private final JComboBox<Dimension> dimensionBox;
 	private final JComboBox<GtnhCoordinateType> typeBox;
@@ -64,11 +72,24 @@ public final class CoordinateExporterDialog {
 			Component parent,
 			World world,
 			CoordinatesInWorld firstCorner,
-			CoordinatesInWorld secondCorner) {
+			CoordinatesInWorld secondCorner, AmidstSettings settings) {
 		this.world = world;
+        this.settings = settings;
 		this.dialog = createDialog(parent);
 		this.dimensionBox = new JComboBox<>(selectableDimensions());
+        this.dimensionBox.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value,
+                    int index, boolean selected, boolean focus) {
+                javax.swing.JLabel label = (javax.swing.JLabel) super.getListCellRendererComponent(list, value, index, selected, focus);
+                if (value instanceof Dimension dimension) {
+                    var info = world.prospectingCatalog().stream().filter(d -> d.key.equals(dimension.prospectingKey())).findFirst().orElse(null);
+                    label.setIcon(amidst.gtnh.prospecting.ProspectingOverlay.menuIcon(info));
+                }
+                return label;
+            }
+        });
 		this.typeBox = new JComboBox<>();
+        dimensionBox.setSelectedItem(settings.dimension.get());
 		this.x1Field = coordinateField(firstCorner.getX());
 		this.z1Field = coordinateField(firstCorner.getY());
 		this.x2Field = coordinateField(secondCorner.getX());
@@ -88,6 +109,7 @@ public final class CoordinateExporterDialog {
 
 	private void initialize() {
 		dimensionBox.addActionListener(event -> refreshTypes());
+        typeBox.addActionListener(event -> refreshConditions());
 		csvButton.addActionListener(event -> exportCsv());
 		journeyMapButton.addActionListener(event -> exportJourneyMap());
 		importButton.addActionListener(event -> importIntoGame());
@@ -111,6 +133,8 @@ public final class CoordinateExporterDialog {
 		addRow(form, constraints, 1, "Coordinate type:", typeBox);
 		addPositionRow(form, constraints, 2, "pos1:", x1Field, z1Field);
 		addPositionRow(form, constraints, 3, "pos2:", x2Field, z2Field);
+        conditionsLabel = addRow(form,constraints,4,"Conditions:",conditions);
+        conditionsLabel.setVisible(exportOptions != null);
 
 		JPanel state = new JPanel(new BorderLayout(8, 4));
 		state.add(statusLabel, BorderLayout.CENTER);
@@ -130,6 +154,7 @@ public final class CoordinateExporterDialog {
 		dialog.add(content, BorderLayout.CENTER);
 		dialog.add(buttons, BorderLayout.SOUTH);
 		dialog.getRootPane().setDefaultButton(csvButton);
+        I18n.localize(dialog);
 		dialog.pack();
 		dialog.setMinimumSize(dialog.getSize());
 		dialog.setLocationRelativeTo(dialog.getOwner());
@@ -139,10 +164,27 @@ public final class CoordinateExporterDialog {
 		Dimension dimension = (Dimension) dimensionBox.getSelectedItem();
 		List<GtnhCoordinateType> types = dimension == null
 				? List.of()
-				: GtnhCoordinateType.forDimension(dimension);
+				: GtnhCoordinateType.forDimension(dimension).stream()
+                        .filter(type -> type.isAvailable(world.prospectingCatalog())).toList();
 		typeBox.setModel(new DefaultComboBoxModel<>(
 				types.toArray(GtnhCoordinateType[]::new)));
+        types.stream().filter(type -> type.isProspecting() && type.prospectingMode().equals(settings.markerMode.get().name()))
+                .findFirst().ifPresent(typeBox::setSelectedItem);
+        refreshConditions();
 	}
+    private void refreshConditions() {
+        conditions.removeAll(); exportOptions = null;
+        GtnhCoordinateType type = (GtnhCoordinateType) typeBox.getSelectedItem();
+        Dimension dimension = (Dimension) dimensionBox.getSelectedItem();
+        if (type != null && type.isProspecting() && dimension != null) {
+            var info = world.prospectingCatalog().stream().filter(d -> dimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
+            exportOptions = new ProspectingExportPanel(info,type.prospectingMode(),settings.prospectingFilter.get(),settings.prospectingMinimumFluid.get());
+            conditions.add(exportOptions);
+        }
+        conditions.setVisible(exportOptions != null); conditions.revalidate(); conditions.repaint();
+        if (conditionsLabel != null) conditionsLabel.setVisible(exportOptions != null);
+        if (dialog.isVisible()) dialog.pack();
+    }
 
 	private void exportCsv() {
 		Selection selection = readSelection();
@@ -160,7 +202,7 @@ public final class CoordinateExporterDialog {
 			return coordinates.size();
 		}, count -> JOptionPane.showMessageDialog(
 				dialog,
-				"Exported " + count + " coordinates to:\n" + file.toAbsolutePath(),
+				notice(I18n.format("Exported {0} coordinates to:\n{1}",count,file.toAbsolutePath())),
 				"Coordinate Export",
 				JOptionPane.INFORMATION_MESSAGE));
 	}
@@ -185,11 +227,7 @@ public final class CoordinateExporterDialog {
 			return coordinates.size();
 		}, count -> JOptionPane.showMessageDialog(
 				dialog,
-				"Exported "
-						+ count
-						+ " JourneyMap waypoints.\n"
-						+ "Extract the ZIP into the target world's JourneyMap waypoint directory:\n"
-						+ file.toAbsolutePath(),
+				notice(I18n.format("Exported {0} JourneyMap waypoints. Extract the ZIP into the target world's waypoint directory:\n{1}",count,file.toAbsolutePath())),
 				"JourneyMap Export",
 				JOptionPane.INFORMATION_MESSAGE));
 	}
@@ -207,23 +245,27 @@ public final class CoordinateExporterDialog {
 			List<GtnhCoordinate> coordinates = locate(selection);
 			if (coordinates.size() > DIRECT_IMPORT_LIMIT) {
 				throw new IllegalArgumentException(
-						"Direct import found "
-								+ coordinates.size()
-								+ " waypoints; the per-operation limit is "
-								+ DIRECT_IMPORT_LIMIT
-								+ ". Reduce the range or export a JourneyMap ZIP.");
+						I18n.text("Direct import is limited to 2000 waypoints. Lower the limit or export a ZIP."));
 			}
 			return world.importJourneyMapWaypoints(
 					selection.dimension,
 					GtnhCoordinateFiles.toWaypoints(coordinates, selection.type));
 		}, count -> JOptionPane.showMessageDialog(
 				dialog,
-				"Imported " + count + " waypoints into JourneyMap.",
+				notice(I18n.format("Imported {0} waypoints into JourneyMap.",count)),
 				"JourneyMap Import",
 				JOptionPane.INFORMATION_MESSAGE));
 	}
 
-	private List<GtnhCoordinate> locate(Selection selection) {
+	private List<GtnhCoordinate> locate(Selection selection) throws Exception {
+        if (selection.options != null) {
+            var result = ProspectingExport.locate((x,z,filter) -> world.prospectFiltered(selection.dimension,x,z,512,512,
+                    selection.type.prospectingMode(),filter),selection.options,selection.x1,selection.z1,selection.x2,selection.z2,
+                    (done,total) -> SwingUtilities.invokeLater(() -> {
+                        if (task != null && !task.isDone()) statusLabel.setText(I18n.format("Scanned {0}/{1} map regions",done,total));
+                    }));
+            reachedLimit = result.reachedLimit(); return result.coordinates();
+        }
 		return GtnhCoordinateLocator.locate(
 				world,
 				selection.type,
@@ -247,7 +289,7 @@ public final class CoordinateExporterDialog {
 					parseCoordinate(x1Field, "pos1 X"),
 					parseCoordinate(z1Field, "pos1 Z"),
 					parseCoordinate(x2Field, "pos2 X"),
-					parseCoordinate(z2Field, "pos2 Z"));
+					parseCoordinate(z2Field, "pos2 Z"), exportOptions == null ? null : exportOptions.read());
 		} catch (IllegalArgumentException e) {
 			showError(e.getMessage());
 			return null;
@@ -257,7 +299,7 @@ public final class CoordinateExporterDialog {
 	private Path chooseSaveFile(String extension, String description) {
 		GtnhCoordinateType type = (GtnhCoordinateType) typeBox.getSelectedItem();
 		Dimension dimension = (Dimension) dimensionBox.getSelectedItem();
-		String baseName = safeName(dimension + "-" + type);
+		String baseName = safeName(dimension.prospectingKey() + "-" + type.prospectingMode());
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle(description);
 		chooser.setAcceptAllFileFilterUsed(false);
@@ -290,6 +332,7 @@ public final class CoordinateExporterDialog {
 			ExceptionalIntSupplier operation,
 			java.util.function.IntConsumer onSuccess) {
 		setBusy(true, status);
+        reachedLimit = false;
 		task = new SwingWorker<>() {
 			@Override
 			protected Integer doInBackground() throws Exception {
@@ -320,6 +363,7 @@ public final class CoordinateExporterDialog {
 
 	private void setBusy(boolean busy, String status) {
 		dimensionBox.setEnabled(!busy);
+        if (exportOptions != null) exportOptions.setControlsEnabled(!busy);
 		typeBox.setEnabled(!busy);
 		x1Field.setEnabled(!busy);
 		z1Field.setEnabled(!busy);
@@ -329,7 +373,7 @@ public final class CoordinateExporterDialog {
 		journeyMapButton.setEnabled(!busy);
 		importButton.setEnabled(!busy);
 		progressBar.setVisible(busy);
-		statusLabel.setText(status);
+		statusLabel.setText(I18n.text(status));
 		dialog.pack();
 	}
 
@@ -379,7 +423,7 @@ public final class CoordinateExporterDialog {
 		return field;
 	}
 
-	private static Dimension[] selectableDimensions() {
+	private Dimension[] selectableDimensions() {
 		Dimension[] preferredOrder = {
 				Dimension.OVERWORLD,
 				Dimension.NETHER,
@@ -400,8 +444,9 @@ public final class CoordinateExporterDialog {
 				Dimension.HORUS,
 				Dimension.TWILIGHT_FOREST
 		};
-		return Arrays.stream(preferredOrder)
-				.filter(dimension -> !GtnhCoordinateType.forDimension(dimension).isEmpty())
+		return java.util.stream.Stream.concat(Arrays.stream(preferredOrder),
+                        Arrays.stream(Dimension.values()).filter(Dimension::isProspectingOnly))
+				.filter(dimension -> GtnhCoordinateType.hasContent(dimension, world.prospectingCatalog()))
 				.toArray(Dimension[]::new);
 	}
 
@@ -416,7 +461,7 @@ public final class CoordinateExporterDialog {
 		return result;
 	}
 
-	private static void addRow(
+	private static JLabel addRow(
 			JPanel panel,
 			GridBagConstraints constraints,
 			int row,
@@ -425,12 +470,14 @@ public final class CoordinateExporterDialog {
 		constraints.gridx = 0;
 		constraints.gridy = row;
 		constraints.weightx = 0.0;
-		panel.add(new JLabel(label), constraints);
+		JLabel labelComponent = new JLabel(label);
+        panel.add(labelComponent, constraints);
 		constraints.gridx = 1;
 		constraints.gridwidth = 4;
 		constraints.weightx = 1.0;
 		panel.add(component, constraints);
 		constraints.gridwidth = 1;
+        return labelComponent;
 	}
 
 	private static void addPositionRow(
@@ -463,10 +510,13 @@ public final class CoordinateExporterDialog {
 	private void showError(String message) {
 		JOptionPane.showMessageDialog(
 				dialog,
-				message,
+				I18n.text(message),
 				"Coordinate Export Error",
 				JOptionPane.ERROR_MESSAGE);
 	}
+    private String notice(String message) {
+        return message + (reachedLimit ? "\n" + I18n.text("Reached the coordinate limit; stopped scanning.") : "");
+    }
 
 	@FunctionalInterface
 	private interface ExceptionalIntSupplier {
@@ -479,6 +529,6 @@ public final class CoordinateExporterDialog {
 			int x1,
 			int z1,
 			int x2,
-			int z2) {
+			int z2, ProspectingExport.Options options) {
 	}
 }

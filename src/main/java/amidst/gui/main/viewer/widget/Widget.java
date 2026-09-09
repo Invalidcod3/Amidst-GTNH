@@ -47,7 +47,8 @@ public abstract class Widget {
 	private static final BufferedImage DROP_SHADOW_RIGHT = ResourceLoader
 			.getImage("/amidst/gui/main/dropshadow/outer_right.png");
 
-	public static final Font TEXT_FONT = new Font("arial", Font.BOLD, 15);
+	// A logical font allows system fallback for CJK in both layout and drawing.
+	public static final Font TEXT_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 15);
 	private static final Color TEXT_COLOR = new Color(1f, 1f, 1f);
 	private static final Color PANEL_COLOR = new Color(0.15f, 0.15f, 0.15f, 0.8f);
 

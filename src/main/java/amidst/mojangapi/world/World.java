@@ -257,6 +257,18 @@ public class World {
 		return gtnhRoguelikeDungeonProducers.supportsJourneyMapImport();
 	}
 
+    public java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() {
+        return gtnhRoguelikeDungeonProducers.prospectingCatalog();
+    }
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(Dimension dimension, int x, int z,
+            int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws amidst.mojangapi.minecraftinterface.MinecraftInterfaceException {
+        return gtnhRoguelikeDungeonProducers.prospectFiltered(dimension, x, z, width, height, mode, filter);
+    }
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospect(Dimension dimension, int x, int z,
+            int width, int height, String mode) throws MinecraftInterfaceException {
+        return gtnhRoguelikeDungeonProducers.prospect(dimension, x, z, width, height, mode);
+    }
+
 	public boolean supportsGtnhWorldStateUpdates() {
 		return gtnhRoguelikeDungeonProducers.supportsWorldStateUpdates();
 	}
