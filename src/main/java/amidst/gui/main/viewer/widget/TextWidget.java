@@ -24,6 +24,7 @@ public abstract class TextWidget extends Widget {
 	@Override
 	protected void doUpdate(FontMetrics fontMetrics, float time) {
 		List<String> newTextLines = updateTextLines();
+        if (newTextLines != null) newTextLines = newTextLines.stream().map(amidst.i18n.I18n::text).toList();
 		if (newTextLines != null && !newTextLines.isEmpty() && !newTextLines.equals(textLines)) {
 			textLines = newTextLines;
 			setWidth(getMarginLeft() + getMaxStringWidth(fontMetrics) + getMarginRight());

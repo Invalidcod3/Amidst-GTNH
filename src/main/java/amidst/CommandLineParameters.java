@@ -37,7 +37,7 @@ public class CommandLineParameters {
 	    name = "-mcjar",
 	    usage = "location of the minecraft jar file",
 	    metaVar = "<file>",
-	    depends = { "-mcjson" },
+	    depends = { "-vanilla", "-mcjson" },
 	    forbids = { "-profile" }
 	)
 	public volatile Path minecraftJarFile;
@@ -46,7 +46,7 @@ public class CommandLineParameters {
 	    name = "-mcjson",
 	    usage = "location of the minecraft json file",
 	    metaVar = "<file>",
-	    depends = { "-mcjar" },
+	    depends = { "-vanilla", "-mcjar" },
 	    forbids = { "-profile" }
 	)
 	public volatile Path minecraftJsonFile;
@@ -55,6 +55,7 @@ public class CommandLineParameters {
 	    name = "-profile",
 	    usage = "name of profile to select",
 	    metaVar = "<name>",
+	    depends = { "-vanilla" },
 	    forbids = { "-mcjar", "-mcjson" }
 	)
     public volatile String profileName;
@@ -111,15 +112,16 @@ public class CommandLineParameters {
 
 	@Option(
 	    name = "-gtnh-worker",
-	    usage = "use a running GTNH biome worker instead of loading the selected Minecraft jar"
+	    usage = "use the GTNH worker (default; retained for existing launch scripts)",
+	    forbids = { "-vanilla" }
 	)
-	public volatile boolean useGtnhWorker;
+	public volatile boolean useGtnhWorker = true;
 
 	@Option(
 	    name = "-gtnh-worker-host",
 	    usage = "GTNH biome worker host (loopback by default)",
 	    metaVar = "<host>",
-	    depends = { "-gtnh-worker" }
+	    forbids = { "-vanilla" }
 	)
 	public volatile String gtnhWorkerHost = "127.0.0.1";
 
@@ -127,7 +129,7 @@ public class CommandLineParameters {
 	    name = "-gtnh-worker-port",
 	    usage = "GTNH biome worker TCP port",
 	    metaVar = "<port>",
-	    depends = { "-gtnh-worker" }
+	    forbids = { "-vanilla" }
 	)
 	public volatile int gtnhWorkerPort = 47117;
 
@@ -135,7 +137,7 @@ public class CommandLineParameters {
 	    name = "-gtnh-worker-token",
 	    usage = "shared token configured in the GTNH biome worker",
 	    metaVar = "<token>",
-	    depends = { "-gtnh-worker" }
+	    forbids = { "-vanilla" }
 	)
 	public volatile String gtnhWorkerToken = "";
 
@@ -143,10 +145,20 @@ public class CommandLineParameters {
 	    name = "-gtnh-colors",
 	    usage = "optional GTNH biome color override JSON file",
 	    metaVar = "<file>",
-	    depends = { "-gtnh-worker" }
+	    forbids = { "-vanilla" }
 	)
 	public volatile Path gtnhBiomeColorsFile;
 	// @formatter:on
+
+	/** The original launcher/profile workflow is an explicit command-line opt-in. */
+	@Option(
+			name = "-vanilla",
+			usage = "use the original Amidst Minecraft profile mode instead of GTNH",
+			forbids = { "-gtnh-worker", "-gtnh-worker-host", "-gtnh-worker-port",
+					"-gtnh-worker-token", "-gtnh-colors" })
+	public void setVanillaMode(boolean enabled) {
+		useGtnhWorker = !enabled;
+	}
 
 	public Optional<WorldOptions> getInitialWorldOptions() {
 	    if (initialSeed == null) {
@@ -156,14 +168,14 @@ public class CommandLineParameters {
 	}
 
 	public Optional<LauncherProfile> getInitialLauncherProfile(MinecraftInstallation minecraftInstallation) {
+	    if (useGtnhWorker) {
+	        return Optional.of(minecraftInstallation.createGtnhWorkerProfile());
+	    }
 	    if (profileName != null) {
 	        return minecraftInstallation.tryGetLauncherProfileFromName(profileName);
 	    }
 	    if (minecraftJarFile != null) {
 	        return minecraftInstallation.tryReadLauncherProfile(minecraftJarFile, minecraftJsonFile);
-	    }
-	    if (useGtnhWorker) {
-	        return Optional.of(minecraftInstallation.createGtnhWorkerProfile());
 	    }
 	    return Optional.empty();
 	}

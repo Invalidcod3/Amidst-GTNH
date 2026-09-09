@@ -72,7 +72,7 @@ public class Zoom {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private int getMinZoomLevel() {
-		return -20;
+		return -40;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

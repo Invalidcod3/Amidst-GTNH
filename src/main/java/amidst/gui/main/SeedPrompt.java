@@ -79,13 +79,13 @@ public class SeedPrompt {
 
 	private JLabel createSeedLabel() {
 		JLabel result = new JLabel();
-		result.setFont(new Font("arial", Font.BOLD, 12));
+		result.setFont(new Font(Font.DIALOG, Font.BOLD, 12));
 		return result;
 	}
 
 	private JLabel createWarningLabel() {
 		JLabel result = new JLabel();
-		result.setFont(new Font("arial", Font.BOLD, 12));
+		result.setFont(new Font(Font.DIALOG, Font.BOLD, 12));
 		result.setForeground(Color.RED);
 		return result;
 	}
@@ -113,9 +113,9 @@ public class SeedPrompt {
 	private void update() {
 		seed = WorldSeed.fromUserInput(textField.getText());
 		if (WorldSeedType.TEXT == seed.getType() && seed.getText().startsWith(" ")) {
-			warningLabel.setText(STARTS_WITH_SPACE_TEXT);
+			warningLabel.setText(amidst.i18n.I18n.text(STARTS_WITH_SPACE_TEXT));
 		} else if (WorldSeedType.TEXT == seed.getType() && seed.getText().endsWith(" ")) {
-			warningLabel.setText(ENDS_WITH_SPACE_TEXT);
+			warningLabel.setText(amidst.i18n.I18n.text(ENDS_WITH_SPACE_TEXT));
 		} else {
 			warningLabel.setText("");
 		}

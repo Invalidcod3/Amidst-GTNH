@@ -6,6 +6,30 @@ import amidst.mojangapi.world.coordinates.Resolution;
 
 @Immutable
 public enum Dimension {
+    EVERGLADES(-2001, "Everglades", "Everglades", Resolution.WORLD),
+    ROSS_128BA(-2002, "Ross128ba", "Ross 128ba", Resolution.WORLD),
+    TRITON(-2003, "Triton", "Triton", Resolution.WORLD),
+    OBERON(-2004, "Oberon", "Oberon", Resolution.WORLD),
+    TITAN(-2005, "Titan", "Titan", Resolution.WORLD),
+    CALLISTO(-2006, "Callisto", "Callisto", Resolution.WORLD),
+    GANYMEDE(-2007, "Ganymede", "Ganymede", Resolution.WORLD),
+    DEIMOS(-2008, "Deimos", "Deimos", Resolution.WORLD),
+    EUROPA(-2009, "Europa", "Europa", Resolution.WORLD),
+    PHOBOS(-2010, "Phobos", "Phobos", Resolution.WORLD),
+    VENUS(-2011, "Venus", "Venus", Resolution.WORLD),
+    MERCURY(-2012, "Mercury", "Mercury", Resolution.WORLD),
+    MAKEMAKE(-2013, "MakeMake", "Makemake", Resolution.WORLD),
+    HAUMEA(-2014, "Haumea", "Haumea", Resolution.WORLD),
+    CENTAURI_BB(-2015, "CentauriBb", "Alpha Centauri Bb", Resolution.WORLD),
+    VEGA_B(-2016, "VegaB", "Vega B", Resolution.WORLD),
+    BARNARDA_E(-2017, "BarnardE", "Barnarda E", Resolution.WORLD),
+    BARNARDA_F(-2018, "BarnardF", "Barnarda F", Resolution.WORLD),
+    TAU_CETI_E(-2019, "TcetiE", "Tau Ceti E", Resolution.WORLD),
+    MIRANDA(-2020, "Miranda", "Miranda", Resolution.WORLD),
+    KUIPER_BELT(-2021, "KuiperBelt", "Kuiper Belt", Resolution.WORLD),
+    NEPER(-2022, "Neper", "Neper", Resolution.WORLD),
+    MAAHES(-2023, "Maahes", "Maahes", Resolution.WORLD),
+    SETH(-2024, "Seth", "Seth", Resolution.WORLD),
 	// @formatter:off
 	NETHER(  -1, "minecraft:the_nether"	, "Nether",    Resolution.NETHER),
 	OVERWORLD(0, "minecraft:overworld",   "Overworld", Resolution.WORLD),
@@ -146,6 +170,33 @@ public enum Dimension {
 		return id;
 	}
 
+    /** Additional entries use stable local preference IDs; the worker resolves the actual configured ID. */
+    public boolean isProspectingOnly() { return id <= -2001 && id >= -2024; }
+
+    public String prospectingKey() {
+        return switch (this) {
+            case OVERWORLD -> "Overworld";
+            case NETHER -> "Nether";
+            case END -> "TheEnd";
+            case MOON -> "Moon";
+            case MARS -> "Mars";
+            case ASTEROIDS -> "Asteroids";
+            case CERES -> "Ceres";
+            case IO -> "Io";
+            case ENCELADUS -> "Enceladus";
+            case PROTEUS -> "Proteus";
+            case PLUTO -> "Pluto";
+            case MEHEN_BELT -> "MehenBelt";
+            case ROSS_128B -> "Ross128b";
+            case BARNARDA_C -> "BarnardC";
+            case DEEP_DARK -> "DeepDark";
+            case ANUBIS -> "Anubis";
+            case HORUS -> "Horus";
+            case TWILIGHT_FOREST -> "TwilightForest";
+            default -> name;
+        };
+    }
+
 	public String getName() {
 		return name;
 	}
@@ -160,6 +211,6 @@ public enum Dimension {
 
 	@Override
 	public String toString() {
-		return displayName;
+		return amidst.i18n.I18n.text(displayName);
 	}
 }

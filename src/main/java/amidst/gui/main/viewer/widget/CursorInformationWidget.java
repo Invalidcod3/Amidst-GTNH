@@ -9,6 +9,7 @@ import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.NotThreadSafe;
 import amidst.fragment.Fragment;
 import amidst.fragment.FragmentGraph;
+import amidst.gtnh.worker.GtnhCursorBiomeLookup;
 import amidst.gui.main.viewer.FragmentGraphToScreenTranslator;
 import amidst.logging.AmidstLogger;
 import amidst.mojangapi.world.Dimension;
@@ -27,6 +28,7 @@ public class CursorInformationWidget extends TextWidget {
 	private final FragmentGraphToScreenTranslator translator;
 	private final Setting<Dimension> dimensionSetting;
 	private final BiomeList biomeList;
+	private final GtnhCursorBiomeLookup exactLookup;
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public CursorInformationWidget(
@@ -35,11 +37,18 @@ public class CursorInformationWidget extends TextWidget {
 			FragmentGraphToScreenTranslator translator,
 			Setting<Dimension> dimensionSetting,
 			BiomeList biomeList) {
+		this(anchor, graph, translator, dimensionSetting, biomeList, null);
+	}
+
+	public CursorInformationWidget(
+			CornerAnchorPoint anchor, FragmentGraph graph, FragmentGraphToScreenTranslator translator,
+			Setting<Dimension> dimensionSetting, BiomeList biomeList, GtnhCursorBiomeLookup exactLookup) {
 		super(anchor);
 		this.graph = graph;
 		this.translator = translator;
 		this.dimensionSetting = dimensionSetting;
 		this.biomeList = biomeList;
+		this.exactLookup = exactLookup;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -49,6 +58,19 @@ public class CursorInformationWidget extends TextWidget {
 		if (mousePosition != null) {
 			CoordinatesInWorld coordinates = translator.screenToWorld(mousePosition);
 			String biomeName = getBiomeNameAt(coordinates);
+			if (exactLookup != null && dimensionSetting.get() == Dimension.OVERWORLD) {
+				try {
+					String exact = exactLookup.poll(Dimension.OVERWORLD,
+							Math.toIntExact(coordinates.getX()), Math.toIntExact(coordinates.getY()));
+					if (exact != null) {
+						return Arrays.asList(amidst.i18n.I18n.text("At block: ") + exact + " " + coordinates,
+								amidst.i18n.I18n.text("Map sample: ") + biomeName + amidst.i18n.I18n.text(" (4x4 blocks)"));
+					}
+				} catch (ArithmeticException outsideWorld) {
+					// Panning past the integer coordinate range cannot be queried.
+				}
+				return Arrays.asList(amidst.i18n.I18n.text("Map sample: ") + biomeName + " " + coordinates + amidst.i18n.I18n.text(" (4x4 blocks)"));
+			}
 			return Arrays.asList(biomeName + " " + coordinates.toString());
 		} else {
 			return null;
@@ -58,6 +80,7 @@ public class CursorInformationWidget extends TextWidget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private String getBiomeNameAt(CoordinatesInWorld coordinates) {
 		Dimension dimension = dimensionSetting.get();
+        if (dimension.isProspectingOnly()) return amidst.i18n.I18n.text("Prospecting");
 		if (!dimension.equals(Dimension.END)) {
 			return getLoadedBiomeNameAt(coordinates);
 		} else if (dimension.equals(Dimension.END)) {

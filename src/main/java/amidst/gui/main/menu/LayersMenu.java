@@ -40,7 +40,9 @@ public class LayersMenu {
 		this.menu = menu;
 		this.settings = settings;
 		this.dimensionSetting = settings.dimension
-				.withListener((oldValue, newValue) -> this.createMenu(newValue));
+				.withListener((oldValue, newValue) -> {
+                    settings.prospectingFilter.set(""); this.createMenu(newValue);
+                });
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -55,10 +57,18 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createMenu(Dimension selectedDimension) {
+        var prospecting = viewerFacade.prospectingCatalog().stream()
+                .filter(d -> selectedDimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
+        if (prospecting != null && (selectedDimension.isProspectingOnly()
+                && settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.STRUCTURE
+                || settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.ORES && !prospecting.ores
+                || settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.FLUID && !prospecting.fluids))
+            settings.markerMode.set(prospecting.ores ? amidst.gtnh.prospecting.MarkerMode.ORES : amidst.gtnh.prospecting.MarkerMode.FLUID);
 		menu.removeAll();
 		overworldMenuItems.clear();
 		endMenuItems.clear();
 		createDimensionLayers(selectedDimension);
+        amidst.i18n.I18n.localize(menu);
 		menu.setEnabled(true);
 	}
 
@@ -74,7 +84,7 @@ public class LayersMenu {
 				|| (dimension == Dimension.END && hasEnd)
 				|| (dimension == Dimension.MOON && hasMoon)
 				|| (dimension == Dimension.TWILIGHT_FOREST && hasTwilightForest)
-				|| viewerFacade.hasBiomeLayer(dimension);
+				|| viewerFacade.hasBiomeLayer(dimension) || viewerFacade.hasProspecting(dimension);
 		if (!supportedDimension) {
 			dimensionSetting.set(Dimension.OVERWORLD);
 			return;
@@ -86,6 +96,7 @@ public class LayersMenu {
 		}
 		if (hasAlternativeDimension) {
 			createDimensionMenu();
+            createMarkerMenu();
 			menu.addSeparator();
 			createAllDimensions();
 			createSelectedDimensionLayers(dimension);
@@ -101,6 +112,23 @@ public class LayersMenu {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createDimensionMenu() {
 		JMenu dimensionMenu = new JMenu("Dimension");
+        if (!viewerFacade.prospectingCatalog().isEmpty()) {
+            ButtonGroup group = new ButtonGroup();
+            java.util.List<Dimension> all = new java.util.ArrayList<>(java.util.Arrays.asList(Dimension.values()));
+            all.sort(java.util.Comparator.comparing((Dimension d) -> d.isProspectingOnly()).thenComparing(Dimension::getDisplayName));
+            JMenu more = new JMenu("More dimensions (ores / fluids)");
+            for (Dimension d : all) {
+                var info = viewerFacade.prospectingCatalog().stream().filter(i -> i.key.equals(d.prospectingKey())).findFirst().orElse(null);
+                if (!amidst.gtnh.export.GtnhCoordinateType.hasContent(d, viewerFacade.prospectingCatalog())) continue;
+                var item = Menus.radio(d.isProspectingOnly() ? more : dimensionMenu, dimensionSetting, group, d,
+                        amidst.gtnh.prospecting.ProspectingOverlay.menuIcon(info));
+                if (info != null) item.setToolTipText((info.ores ? "Ores" : "")
+                        + (info.ores && info.fluids ? " / " : "") + (info.fluids ? "Fluid" : ""));
+            }
+            if (more.getItemCount() > 0) dimensionMenu.add(more);
+            menu.add(dimensionMenu);
+            return;
+        }
 		// @formatter:off
 		ButtonGroup group = new ButtonGroup();
 		Menus.radio(dimensionMenu, dimensionSetting, group, Dimension.OVERWORLD, MenuShortcuts.DISPLAY_DIMENSION_OVERWORLD);
@@ -151,6 +179,19 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createSelectedDimensionLayers(Dimension dimension) {
+        if (settings.markerMode.get() != amidst.gtnh.prospecting.MarkerMode.STRUCTURE) {
+            JMenuItem filter = new JMenuItem("Filter " + settings.markerMode.get() + " ...");
+            filter.addActionListener(e -> {
+                var info = viewerFacade.prospectingCatalog().stream()
+                        .filter(d -> dimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
+                amidst.gtnh.prospecting.ProspectingFilterPanel.show(menu, info, settings.markerMode.get(), settings);
+            });
+            menu.add(filter);
+            JMenuItem refresh = new JMenuItem("Refresh prospecting");
+            refresh.addActionListener(e -> viewerFacade.refreshProspecting());
+            menu.add(refresh);
+            return;
+        }
 		if (dimension == Dimension.OVERWORLD) {
 			menu.addSeparator();
 			createOverworldLayers(dimension);
@@ -408,6 +449,25 @@ public class LayersMenu {
 		Menus.checkbox(menu, settings.showPlayers,        "Player Icons",           getIcon("player.png"),          MenuShortcuts.SHOW_PLAYERS);
 		// @formatter:on
 	}
+
+    private void createMarkerMenu() {
+        if (viewerFacade.prospectingCatalog().isEmpty()) return;
+        JMenu markers = new JMenu("Markers");
+        ButtonGroup group = new ButtonGroup();
+        Setting<amidst.gtnh.prospecting.MarkerMode> modeSetting = settings.markerMode.withListener((a, b) -> {
+            settings.prospectingFilter.set(""); createMenu(dimensionSetting.get());
+        });
+        for (var mode : amidst.gtnh.prospecting.MarkerMode.values()) {
+            String icon = mode == amidst.gtnh.prospecting.MarkerMode.ORES ? "prospecting_ores.png"
+                    : mode == amidst.gtnh.prospecting.MarkerMode.FLUID ? "prospecting_fluid.png" : "village.png";
+            var item = Menus.radio(markers, modeSetting, group, mode, getIcon(icon));
+            var info = viewerFacade.prospectingCatalog().stream()
+                    .filter(d -> dimensionSetting.get().prospectingKey().equals(d.key)).findFirst().orElse(null);
+            item.setEnabled(mode == amidst.gtnh.prospecting.MarkerMode.STRUCTURE ? !dimensionSetting.get().isProspectingOnly()
+                    : info != null && (mode == amidst.gtnh.prospecting.MarkerMode.ORES ? info.ores : info.fluids));
+        }
+        menu.add(markers);
+    }
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void overworldLayer(

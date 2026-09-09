@@ -36,26 +36,19 @@ public class ImageLoader extends FragmentLoader {
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	@Override
 	public void load(Dimension dimension, Fragment fragment) {
-		doLoad(dimension, fragment);
+		doLoadAtomic(dimension, fragment);
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	@Override
 	public void reload(Dimension dimension, Fragment fragment) {
-		doLoad(dimension, fragment);
+		doLoadAtomic(dimension, fragment);
 	}
 	
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	private void doLoad(Dimension dimension, Fragment fragment) {
-		// Slightly faster and uses less ram, but not as safe
-		CoordinatesInWorld corner = fragment.getCorner();
-		long cornerX = corner.getXAs(resolution);
-		long cornerY = corner.getYAs(resolution);
-		drawToImage(dimension, fragment, cornerX, cornerY, fragment.getImage(declaration.getLayerId()));
-	}
-
-	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	private void doLoadAtomic(Dimension dimension, Fragment fragment) {
+		// Published images are immutable. Drawing can safely retain the previous
+		// picture throughout a slow biome refresh, including a failed refresh.
 		CoordinatesInWorld corner = fragment.getCorner();
 		long cornerX = corner.getXAs(resolution);
 		long cornerY = corner.getYAs(resolution);

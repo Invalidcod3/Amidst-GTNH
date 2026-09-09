@@ -34,6 +34,7 @@ final class NetherBiomeSamplers {
 
     static NetherBiomeSampler create(final WorldServer world) {
         final WorldChunkManager manager = world.getWorldChunkManager();
+        final ManagerBiomeCache predictions = new ManagerBiomeCache(manager);
         return new NetherBiomeSampler() {
 
             @Override
@@ -46,7 +47,7 @@ final class NetherBiomeSamplers {
                 if (world.blockExists(x, 0, z)) {
                     return world.getBiomeGenForCoords(x, z);
                 }
-                return manager.getBiomeGenAt(x, z);
+                return predictions.getBiomeAt(x, z);
             }
         };
     }
@@ -77,11 +78,12 @@ final class NetherBiomeSamplers {
                     "Nether dimension -1 uses provider {}; falling back to the vanilla Hell biome manager",
                     provider.getClass().getName());
         }
+        final ManagerBiomeCache predictions = new ManagerBiomeCache(manager);
         return new NetherBiomeSampler() {
 
             @Override
             public BiomeGenBase getBiomeAt(int x, int z) {
-                return manager.getBiomeGenAt(x, z);
+                return predictions.getBiomeAt(x, z);
             }
         };
     }

@@ -40,8 +40,15 @@ final class ThaumcraftStructurePredictor {
     private final BiomeGenBase taint;
 
     ThaumcraftStructurePredictor() {
+        this(loadApi("thaumcraft.common.config.Config"),
+                loadApi("thaumcraft.common.lib.world.ThaumcraftWorldGenerator"),
+                loadApi("thaumcraft.common.lib.world.biomes.BiomeHandler"));
+    }
+
+    // Explicit API dependencies let sliced jobs be checked without a game or global mock mod classes.
+    ThaumcraftStructurePredictor(Class<?> config, Class<?> generator, Class<?> biomeHandler) {
         try {
-            configClass = Class.forName("thaumcraft.common.config.Config");
+            configClass = config;
             genAura = configClass.getField("genAura");
             genStructure = configClass.getField("genStructure");
             genCinnibar = configClass.getField("genCinnibar");
@@ -50,15 +57,11 @@ final class ThaumcraftStructurePredictor {
             genTrees = configClass.getField("genTrees");
             nodeRarity = configClass.getField("nodeRarity");
 
-            Class<?> generator =
-                    Class.forName("thaumcraft.common.lib.world.ThaumcraftWorldGenerator");
             getDimBlacklist = generator.getMethod("getDimBlacklist", Integer.TYPE);
             getBiomeBlacklist = generator.getMethod("getBiomeBlacklist", Integer.TYPE);
             magicalForest = (BiomeGenBase) generator.getField("biomeMagicalForest").get(null);
             taint = (BiomeGenBase) generator.getField("biomeTaint").get(null);
 
-            Class<?> biomeHandler =
-                    Class.forName("thaumcraft.common.lib.world.biomes.BiomeHandler");
             getBiomeSupportsGreatwood =
                     biomeHandler.getMethod("getBiomeSupportsGreatwood", Integer.TYPE);
         } catch (ReflectiveOperationException e) {
@@ -68,102 +71,119 @@ final class ThaumcraftStructurePredictor {
         }
     }
 
-    List<RoguelikeDungeonPredictor.StructureDescriptor> predict(
-            long seed,
-            int dimension,
-            int minX,
-            int minZ,
-            int width,
-            int height,
-            SurfaceBiomeSampler sampler) {
-        if (dimension != OVERWORLD) {
-            throw new IllegalArgumentException("Thaumcraft prediction supports only overworld dimension 0");
-        }
-        if (oresConsumeRandomness()) {
-            AmidstGtnhWorkerLog.LOG.warn(
-                    "Thaumcraft ore generation is enabled; aura-node and altar prediction is disabled "
-                            + "because ore placement changes the worldgen random stream");
-            return new ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
-        }
+    private static Class<?> loadApi(String name) {
+        try { return Class.forName(name); }
+        catch (ClassNotFoundException e) { throw new IllegalStateException("Thaumcraft API unavailable: " + name, e); }
+    }
 
-        int rarity = getInt(nodeRarity);
-        if (rarity < 1) {
-            throw new IllegalStateException("Thaumcraft returned invalid node rarity " + rarity);
-        }
-        int blacklist = invokeInt(getDimBlacklist, dimension);
-        long maxX = (long) minX + width;
-        long maxZ = (long) minZ + height;
-        int minChunkX = floorDiv((long) minX - 15L, 16);
-        int maxChunkX = floorDiv(maxX - 1L, 16);
-        int minChunkZ = floorDiv((long) minZ - 15L, 16);
-        int maxChunkZ = floorDiv(maxZ - 1L, 16);
-        List<RoguelikeDungeonPredictor.StructureDescriptor> result =
-                new ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
+    List<RoguelikeDungeonPredictor.StructureDescriptor> predict(long seed, int dimension,
+            int minX, int minZ, int width, int height, SurfaceBiomeSampler sampler) {
+        Job job = begin(seed, dimension, minX, minZ, width, height, sampler);
+        job.advance(Long.MAX_VALUE);
+        return job.result;
+    }
 
-        for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-                Random random = RoguelikeDungeonPredictor.forgeChunkRandom(seed, chunkX, chunkZ);
-                if (!consumeVegetation(random, chunkX, chunkZ, sampler, blacklist)) {
-                    continue;
-                }
+    Job begin(long seed, int dimension, int minX, int minZ, int width, int height, SurfaceBiomeSampler sampler) {
+        return new Job(seed, dimension, minX, minZ, width, height, sampler);
+    }
 
-                PredictedPoint structureNode = predictScatteredFeatureNode(
-                        seed,
-                        chunkX,
-                        chunkZ,
-                        sampler);
-                if (getBoolean(genAura) && blacklist != 0 && blacklist != 2) {
-                    if (structureNode != null) {
-                        addIfInside(
-                                result,
-                                "THAUMCRAFT_AURA_NODE",
-                                "SCATTERED_FEATURE",
-                                structureNode.x,
-                                structureNode.z,
-                                minX,
-                                minZ,
-                                maxX,
-                                maxZ);
-                        // createRandomNodeAt consumes biome- and terrain-dependent
-                        // randomness, so the later altar stream is not stable.
-                        continue;
-                    }
-                    if (random.nextInt(rarity) == 0) {
-                        int x = chunkX * 16 + random.nextInt(16);
-                        int z = chunkZ * 16 + random.nextInt(16);
-                        addIfInside(
-                                result,
-                                "THAUMCRAFT_AURA_NODE",
-                                "WILD",
-                                x,
-                                z,
-                                minX,
-                                minZ,
-                                maxX,
-                                maxZ);
-                        continue;
-                    }
-                }
-
-                if (blacklist == -1 && getBoolean(genStructure)) {
-                    int x = chunkX * 16 + random.nextInt(16);
-                    int z = chunkZ * 16 + random.nextInt(16);
-                    if (random.nextInt(150) != 0 && random.nextInt(66) == 0) {
-                        addIfInside(
-                                result,
-                                "THAUMCRAFT_ELDRITCH_ALTAR",
-                                "",
-                                x,
-                                z,
-                                minX,
-                                minZ,
-                                maxX,
-                                maxZ);
-                    }
-                }
+    /** Keep each chunk's original RNG intact; only yield between chunks. */
+    final class Job {
+        final List<RoguelikeDungeonPredictor.StructureDescriptor> result = new ArrayList<>();
+        private final long seed, maxX, maxZ;
+        private final int minX, minZ, minChunkX, maxChunkX, maxChunkZ, rarity, blacklist;
+        private final SurfaceBiomeSampler sampler;
+        private int chunkX, chunkZ;
+        Job(long seed, int dimension, int minX, int minZ, int width, int height, SurfaceBiomeSampler sampler) {
+            if (dimension != OVERWORLD) throw new IllegalArgumentException("Thaumcraft prediction requires overworld");
+            this.seed = seed; this.minX = minX; this.minZ = minZ; this.sampler = sampler;
+            maxX = (long) minX + width; maxZ = (long) minZ + height;
+            minChunkX = floorDiv((long) minX - 15L, 16);
+            maxChunkX = floorDiv(maxX - 1, 16); maxChunkZ = floorDiv(maxZ - 1, 16);
+            chunkX = minChunkX; chunkZ = floorDiv((long) minZ - 15L, 16);
+            rarity = getInt(nodeRarity);
+            if (rarity < 1) throw new IllegalStateException("Thaumcraft returned invalid node rarity " + rarity);
+            blacklist = invokeInt(getDimBlacklist, dimension);
+            if (oresConsumeRandomness()) {
+                AmidstGtnhWorkerLog.LOG.warn("Thaumcraft ores alter the random stream; node/altar prediction disabled");
+                chunkZ = maxChunkZ + 1;
             }
         }
-        return result;
+        boolean advance(long deadline) {
+            return advance(deadline, System::nanoTime);
+        }
+        boolean advance(long deadline, java.util.function.LongSupplier clock) {
+            while (chunkZ <= maxChunkZ) {
+                if (clock.getAsLong() >= deadline) return false;
+                predictChunk(chunkX, chunkZ, seed, blacklist, rarity, sampler, minX, minZ, maxX, maxZ, result);
+                if (++chunkX > maxChunkX) { chunkX = minChunkX; chunkZ++; }
+            }
+            return true;
+        }
+    }
+
+    private void predictChunk(int chunkX, int chunkZ, long seed, int blacklist, int rarity,
+            SurfaceBiomeSampler sampler, int minX, int minZ, long maxX, long maxZ,
+            List<RoguelikeDungeonPredictor.StructureDescriptor> result) {
+        Random random = RoguelikeDungeonPredictor.forgeChunkRandom(seed, chunkX, chunkZ);
+        if (!consumeVegetation(random, chunkX, chunkZ, sampler, blacklist)) {
+            return;
+        }
+
+        PredictedPoint structureNode = predictScatteredFeatureNode(
+                seed,
+                chunkX,
+                chunkZ,
+                sampler);
+        if (getBoolean(genAura) && blacklist != 0 && blacklist != 2) {
+            if (structureNode != null) {
+                addIfInside(
+                        result,
+                        "THAUMCRAFT_AURA_NODE",
+                        "SCATTERED_FEATURE",
+                        structureNode.x,
+                        structureNode.z,
+                        minX,
+                        minZ,
+                        maxX,
+                        maxZ);
+                // createRandomNodeAt consumes biome- and terrain-dependent
+                // randomness, so the later altar stream is not stable.
+                return;
+            }
+            if (random.nextInt(rarity) == 0) {
+                int x = chunkX * 16 + random.nextInt(16);
+                int z = chunkZ * 16 + random.nextInt(16);
+                addIfInside(
+                        result,
+                        "THAUMCRAFT_AURA_NODE",
+                        "WILD",
+                        x,
+                        z,
+                        minX,
+                        minZ,
+                        maxX,
+                        maxZ);
+                return;
+            }
+        }
+
+        if (blacklist == -1 && getBoolean(genStructure)) {
+            int x = chunkX * 16 + random.nextInt(16);
+            int z = chunkZ * 16 + random.nextInt(16);
+            if (random.nextInt(150) != 0 && random.nextInt(66) == 0) {
+                addIfInside(
+                        result,
+                        "THAUMCRAFT_ELDRITCH_ALTAR",
+                        "",
+                        x,
+                        z,
+                        minX,
+                        minZ,
+                        maxX,
+                        maxZ);
+            }
+        }
     }
 
     /**

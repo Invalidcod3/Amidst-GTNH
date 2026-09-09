@@ -17,9 +17,11 @@ public abstract class FragmentDrawer {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	public boolean isEnabled() {
+    public boolean isEnabled() {
 		return declaration.isVisible();
-	}
+    }
+
+    public int getLayerId() { return declaration.getLayerId(); }
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public boolean isDrawUnloaded() {

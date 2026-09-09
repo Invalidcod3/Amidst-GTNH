@@ -21,6 +21,11 @@ import amidst.settings.biomeprofile.BiomeProfileSelection;
 
 @ThreadSafe
 public class AmidstSettings {
+    public final Setting<amidst.i18n.Language> language;
+    public final Setting<amidst.gtnh.prospecting.MarkerMode> markerMode =
+            Setting.createDummy(amidst.gtnh.prospecting.MarkerMode.STRUCTURE);
+    public final Setting<String> prospectingFilter = Setting.createDummy("");
+    public final Setting<Integer> prospectingMinimumFluid = Setting.createDummy(0);
 	public final Setting<Dimension> dimension;
 	public final Setting<Boolean> showGrid;
 	public final Setting<Boolean> showSlimeChunks;
@@ -90,6 +95,7 @@ public class AmidstSettings {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public AmidstSettings(Preferences preferences) {
+        language = Setting.createEnum(preferences,"language",amidst.i18n.Language.systemDefault());
 		// @formatter:off
 		dimension                  = Setting.createDimension(preferences, "dimension",            Dimension.OVERWORLD);
 		showGrid                   = Setting.createBoolean(  preferences, "grid",                 false);

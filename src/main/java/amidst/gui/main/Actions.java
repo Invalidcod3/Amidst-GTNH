@@ -132,9 +132,14 @@ public class Actions {
 					viewerFacade.getComponent(),
 					viewerFacade.getWorld(),
 					viewerFacade.getVisibleTopLeft(),
-					viewerFacade.getVisibleBottomRight())
+					viewerFacade.getVisibleBottomRight(), viewerFacade.getSettings())
 					.show();
 		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean canSwitchProfile() {
+		return application.canSwitchMinecraftProfile();
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

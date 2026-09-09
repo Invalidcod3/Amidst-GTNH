@@ -119,9 +119,9 @@ public abstract class ProfileComponent implements Comparable<ProfileComponent>{
 		}
 	}
 
-	private static final Font STATUS_FONT = new Font("arial", Font.BOLD, 10);
-	private static final Font VERSION_NAME_FONT = new Font("arial", Font.BOLD, 16);
-	private static final Font PROFILE_NAME_FONT = new Font("arial", Font.BOLD, 30);
+	private static final Font STATUS_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 10);
+	private static final Font VERSION_NAME_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 16);
+	private static final Font PROFILE_NAME_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 30);
 	private static final BufferedImage ACTIVE_ICON = ResourceLoader.getImage("/amidst/gui/profileselect/active.png");
 	private static final BufferedImage INACTIVE_ICON = ResourceLoader
 			.getImage("/amidst/gui/profileselect/inactive.png");

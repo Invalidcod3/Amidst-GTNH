@@ -57,6 +57,11 @@ public class FragmentGraph implements Iterable<FragmentGraphItem> {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
+	public void setViewport(CoordinatesInWorld topLeft, CoordinatesInWorld bottomRight) {
+		fragmentManager.setViewport(topLeft, bottomRight);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
 	private void recycleAll() {
 		topLeftFragment.ifInitialized(f -> f.recycleAll(fragmentManager));
 	}

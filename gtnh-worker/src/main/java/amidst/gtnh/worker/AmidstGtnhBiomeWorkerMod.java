@@ -15,18 +15,26 @@ import net.minecraftforge.event.world.ChunkEvent;
 @Mod(
         modid = AmidstGtnhBiomeWorkerMod.MOD_ID,
         name = "Amidst GTNH Biome Worker",
-        version = "0.2.0",
+        version = "0.3.0",
         acceptedMinecraftVersions = "[1.7.10]",
+        dependencies = "before:RWG",
         acceptableRemoteVersions = "*")
 public final class AmidstGtnhBiomeWorkerMod {
 
     static final String MOD_ID = "amidstgtnhworker";
 
     private WorkerConfig config;
-    private BiomeWorkerServer server;
+    // Published by either the client or dedicated-server lifecycle, and read
+    // from both tick/event threads when an integrated server is running.
+    private volatile BiomeWorkerServer server;
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
+        try {
+            RwgRuntimeClasses.install();
+        } catch (RuntimeException | LinkageError e) {
+            AmidstGtnhWorkerLog.LOG.warn("RWG runtime inspection unavailable; keeping full native replay", e);
+        }
         config = WorkerConfig.load(event.getSuggestedConfigurationFile());
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
@@ -44,7 +52,7 @@ public final class AmidstGtnhBiomeWorkerMod {
         startWorker();
     }
 
-    private void startWorker() {
+    private synchronized void startWorker() {
         if (!config.enabled) {
             AmidstGtnhWorkerLog.LOG.info(
                     "GTNH biome worker is disabled. Set worker.enabled=true or "
@@ -52,24 +60,33 @@ public final class AmidstGtnhBiomeWorkerMod {
             return;
         }
         if (server == null) {
-            server = new BiomeWorkerServer(config.port, config.token);
-            server.start();
+            BiomeWorkerServer candidate = new BiomeWorkerServer(config.port, config.token);
+            if (candidate.start()) {
+                server = candidate;
+                WorkerTickHooks.setWorker(candidate);
+                AmidstGtnhWorkerLog.LOG.info(
+                        "GTNH biome worker loaded from {}",
+                        AmidstGtnhBiomeWorkerMod.class.getProtectionDomain().getCodeSource().getLocation());
+            }
         }
     }
 
     @SubscribeEvent
     public void serverTick(TickEvent.ServerTickEvent event) {
-        if (server != null && event.phase == TickEvent.Phase.END) {
-            server.executeQueuedQueries();
+        BiomeWorkerServer currentServer = server;
+        if (currentServer != null) {
+            if (event.phase == TickEvent.Phase.START) currentServer.beginGameTick();
+            else currentServer.onForgeTickEnd();
         }
     }
 
     @SubscribeEvent
     public void clientTick(TickEvent.ClientTickEvent event) {
-        if (server != null
-                && event.phase == TickEvent.Phase.END
+        BiomeWorkerServer currentServer = server;
+        if (currentServer != null
                 && DimensionManager.getWorld(0) == null) {
-            server.executeQueuedQueries();
+            if (event.phase == TickEvent.Phase.START) currentServer.beginGameTick();
+            else currentServer.executeQueuedQueries();
         }
     }
 
@@ -84,20 +101,44 @@ public final class AmidstGtnhBiomeWorkerMod {
     }
 
     private void recordChunkStateChange(ChunkEvent event) {
-        if (server != null
-                && event.world != null
-                && !event.world.isRemote
-                && event.world.provider != null
-                && event.world.provider.dimensionId == 0) {
-            server.recordOverworldChunkChange(
-                    event.getChunk().xPosition,
-                    event.getChunk().zPosition);
+        BiomeWorkerServer currentServer = server;
+        if (currentServer == null) {
+            return;
+        }
+        try {
+            if (event.world != null
+                    && !event.world.isRemote
+                    && event.world.provider != null
+                    && event.world.provider.dimensionId == 0) {
+                currentServer.recordOverworldChunkChange(
+                        event.getChunk().xPosition,
+                        event.getChunk().zPosition);
+            }
+        } catch (LinkageError e) {
+            // Last-resort containment for an incorrectly installed developer
+            // JAR or incompatible runtime. Never turn a map refresh into a
+            // world-load crash; log once, then disable this optional service.
+            disableIncompatibleWorker(currentServer, e);
+        }
+    }
+
+    private synchronized void disableIncompatibleWorker(BiomeWorkerServer failedServer, LinkageError cause) {
+        if (server == failedServer) {
+            server = null;
+            WorkerTickHooks.setWorker(null);
+            AmidstGtnhWorkerLog.LOG.error(
+                    "GTNH biome worker disabled after a Minecraft linkage failure. "
+                            + "Install the verified reobfuscated Worker JAR from build/release. "
+                            + "See docs/worker-troubleshooting.md for build and runtime checks.",
+                    cause);
+            failedServer.close();
         }
     }
 
     @Mod.EventHandler
-    public void serverStopping(FMLServerStoppingEvent event) {
+    public synchronized void serverStopping(FMLServerStoppingEvent event) {
         if (server != null && FMLCommonHandler.instance().getSide().isServer()) {
+            WorkerTickHooks.setWorker(null);
             server.close();
             server = null;
         }

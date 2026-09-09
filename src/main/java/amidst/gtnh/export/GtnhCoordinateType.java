@@ -23,6 +23,7 @@ import amidst.mojangapi.world.icon.producer.WorldIconProducer;
  */
 public final class GtnhCoordinateType {
 	private enum Family {
+        PROSPECTING,
 		ROGUELIKE,
 		OVERWORLD,
 		NETHER,
@@ -62,6 +63,17 @@ public final class GtnhCoordinateType {
 		return ALL.stream().filter(type -> type.dimension == dimension).toList();
 	}
 
+    public boolean isAvailable(List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> catalog) {
+        return family != Family.PROSPECTING || catalog.stream().anyMatch(info -> dimension.prospectingKey().equals(info.key)
+                && (enumName.equals("ORES") ? info.ores : info.fluids));
+    }
+    public boolean isProspecting() { return family == Family.PROSPECTING; }
+    public String prospectingMode() { return enumName; }
+
+    public static boolean hasContent(Dimension dimension, List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> catalog) {
+        return forDimension(dimension).stream().anyMatch(type -> type.isAvailable(catalog));
+    }
+
 	public Dimension getDimension() {
 		return dimension;
 	}
@@ -76,6 +88,23 @@ public final class GtnhCoordinateType {
 
 	public WorldIconProducer<Void> getProducer(World world) {
 		return switch (family) {
+            case PROSPECTING -> new WorldIconProducer<Void>() {
+                public void produce(amidst.mojangapi.world.coordinates.CoordinatesInWorld corner,
+                        java.util.function.Consumer<amidst.mojangapi.world.icon.WorldIcon> consumer, Void ignored) {
+                    try {
+                        var info = world.prospectingCatalog().stream().filter(d -> d.key.equals(dimension.prospectingKey())).findFirst().orElse(null);
+                        if (info == null || !(enumName.equals("ORES") ? info.ores : info.fluids)) return;
+                        var tile = world.prospect(dimension, Math.toIntExact(corner.getX()), Math.toIntExact(corner.getY()), 512, 512, enumName);
+                        var image = amidst.mojangapi.world.icon.WorldIconImage.from(amidst.ResourceLoader.getImage(
+                                "/amidst/gui/main/icon/" + (enumName.equals("ORES") ? "prospecting_ores.png" : "prospecting_fluid.png")));
+                        for (var deposit : tile.deposits) consumer.accept(new amidst.mojangapi.world.icon.WorldIcon(
+                                amidst.mojangapi.world.coordinates.CoordinatesInWorld.from(deposit.x, deposit.z),
+                                deposit.name + " [" + deposit.source + "]", image, dimension, true));
+                    } catch (amidst.mojangapi.minecraftinterface.MinecraftInterfaceException e) {
+                        throw new IllegalStateException("Prospecting coordinate query failed", e);
+                    }
+                }
+            };
 			case ROGUELIKE -> world.getGtnhRoguelikeDungeonProducer(
 					GtnhRoguelikeDungeonType.valueOf(enumName));
 			case OVERWORLD -> world.getGtnhOverworldStructureProducer(
@@ -96,11 +125,15 @@ public final class GtnhCoordinateType {
 
 	@Override
 	public String toString() {
-		return displayName;
+		return amidst.i18n.I18n.text(displayName);
 	}
 
 	private static List<GtnhCoordinateType> createCatalogue() {
 		List<GtnhCoordinateType> result = new ArrayList<>();
+        for (Dimension dimension : Dimension.values()) {
+            result.add(new GtnhCoordinateType(dimension, "Ore veins", Family.PROSPECTING, "ORES"));
+            result.add(new GtnhCoordinateType(dimension, "Underground fluids", Family.PROSPECTING, "FLUID"));
+        }
 		for (GtnhOverworldStructureType type : GtnhOverworldStructureType.values()) {
 			result.add(new GtnhCoordinateType(
 					Dimension.OVERWORLD,

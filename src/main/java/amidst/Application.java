@@ -70,6 +70,7 @@ public class Application {
 	@CalledOnlyBy(AmidstThread.EDT)
 	public Application(CommandLineParameters parameters, AmidstSettings settings) throws FormatException, IOException {
 		this.settings = settings;
+        amidst.i18n.I18n.install(settings.language.get());
 
 		minecraftInstallation = MinecraftInstallation.newLocalMinecraftInstallation(parameters.dotMinecraftDirectory);
 
@@ -171,14 +172,22 @@ public class Application {
 		return mainWindow;
 	}
 
+	@CalledOnlyBy(AmidstThread.EDT)
+	public boolean canSwitchMinecraftProfile() {
+		return !launcherProfileRunner.isGtnhWorkerEnabled();
+	}
+
 	/**
-	 * Creates and shows a profile selection window.
+	 * Creates and shows a profile selection window in explicit vanilla mode.
 	 * <p>
 	 * This disposes the main window if it is visible, and any previous
 	 * profile select window.
 	 */
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void displayProfileSelectWindow() {
+		if (!canSwitchMinecraftProfile()) {
+			return;
+		}
 		ProfileSelectWindow window = new ProfileSelectWindow(
 				this,
 				threadMaster.getWorkerExecutor(),

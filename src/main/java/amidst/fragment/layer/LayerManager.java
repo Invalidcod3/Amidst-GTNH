@@ -70,6 +70,10 @@ public class LayerManager {
 		layerLoader.loadAll(dimension, fragment);
 	}
 
+	public void prepareFragment(Fragment fragment, boolean reloadBiomes) {
+		layerLoader.prepareFragment(fragment, reloadBiomes);
+	}
+
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void reloadInvalidated(Dimension dimension, Fragment fragment) {
 		layerLoader.reloadInvalidated(dimension, fragment);
@@ -78,11 +82,6 @@ public class LayerManager {
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void reloadBiomeLayers(Dimension dimension, Fragment fragment) {
 		layerLoader.reloadBiomeLayers(dimension, fragment);
-	}
-
-	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	public void clearInvalidatedLayers() {
-		layerLoader.clearInvalidatedLayers();
 	}
 
 	public Iterable<LayerDeclaration> getDeclarations() {

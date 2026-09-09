@@ -16,6 +16,9 @@ import amidst.settings.Setting;
 
 @NotThreadSafe
 public class FragmentManager {
+	// Worker predictions run serially on the game thread. Keep the remote backlog small.
+	private static final int GTNH_CONCURRENT_FRAGMENTS = 2;
+	private static final int GTNH_MAX_CONCURRENT_FRAGMENTS = 4;
 	private final ConcurrentLinkedQueue<Fragment> availableQueue = new ConcurrentLinkedQueue<>();
 	private final ConcurrentLinkedQueue<Fragment> loadingQueue = new ConcurrentLinkedQueue<>();
 	private final ConcurrentLinkedQueue<Fragment> recycleQueue = new ConcurrentLinkedQueue<>();
@@ -23,6 +26,9 @@ public class FragmentManager {
 	
 	private final Setting<Integer> threadsSetting;
 	private ThreadPoolExecutor fragWorkers;
+	private volatile FragmentViewport viewport;
+	private FragmentQueueProcessor queueProcessor;
+	private Setting<Dimension> dimensionSetting = Setting.createImmutable(Dimension.OVERWORLD);
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public FragmentManager(Iterable<FragmentConstructor> constructors, int numberOfLayers, Setting<Integer> threadsSetting) {
@@ -44,31 +50,36 @@ public class FragmentManager {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public Fragment requestFragment(CoordinatesInWorld coordinates) {
-		Fragment fragment;
-		while ((fragment = availableQueue.poll()) == null) {
-			cache.increaseSize();
-		}
-		fragment.setCorner(coordinates);
-		fragment.setState(Fragment.State.INITIALIZED);
-		loadingQueue.offer(fragment);
-		return fragment;
+		return cache.requestFragment(coordinates, dimensionSetting.get());
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void recycleFragment(Fragment fragment) {
+		cache.requestRecycling(fragment);
 		recycleQueue.offer(fragment);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	public FragmentQueueProcessor createQueueProcessor(LayerManager layerManager, Setting<Dimension> dimensionSetting) {
-		return new FragmentQueueProcessor(
-				availableQueue,
+	public void setViewport(CoordinatesInWorld topLeft, CoordinatesInWorld bottomRight) {
+		viewport = new FragmentViewport(topLeft, bottomRight);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public FragmentQueueProcessor createQueueProcessor(
+			LayerManager layerManager, Setting<Dimension> dimensionSetting, boolean usesGtnhWorker) {
+		this.dimensionSetting = dimensionSetting;
+		queueProcessor = new FragmentQueueProcessor(
 				loadingQueue,
 				recycleQueue,
 				cache,
 				layerManager,
 				fragWorkers,
-				dimensionSetting);
+				dimensionSetting,
+				() -> viewport,
+				usesGtnhWorker ? Math.max(1, Math.min(GTNH_MAX_CONCURRENT_FRAGMENTS,
+						Integer.getInteger("amidst.gtnh.concurrentFragments", GTNH_CONCURRENT_FRAGMENTS)))
+						: fragWorkers.getMaximumPoolSize());
+		return queueProcessor;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -78,7 +89,7 @@ public class FragmentManager {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public int getLoadingQueueSize() {
-		return loadingQueue.size();
+		return loadingQueue.size() + (queueProcessor == null ? 0 : queueProcessor.getActiveLoadCount());
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -88,6 +99,9 @@ public class FragmentManager {
 	
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void clear() {
+		if (queueProcessor != null) {
+			queueProcessor.dispose();
+		}
 		cache.clear();
 		availableQueue.clear();
 		loadingQueue.clear();

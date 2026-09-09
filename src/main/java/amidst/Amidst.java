@@ -8,6 +8,7 @@ import amidst.gui.crash.CrashWindow;
 import amidst.logging.AmidstLogger;
 import amidst.logging.AmidstMessageBox;
 import amidst.logging.FileLogger;
+import amidst.logging.WindowsConsoleLauncher;
 import amidst.mojangapi.file.DotMinecraftDirectoryNotFoundException;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceCreationException;
 import org.kohsuke.args4j.CmdLineException;
@@ -16,6 +17,9 @@ import org.kohsuke.args4j.ParserProperties;
 
 import java.awt.EventQueue;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.util.Date;
 import java.util.List;
@@ -68,12 +72,6 @@ public class Amidst {
 			System.exit(2);
 		}
 
-		// initialize file logging
-		if (parameters.logFile != null) {
-			AmidstLogger.info("using log file: '" + parameters.logFile + "'");
-			AmidstLogger.addListener("file", new FileLogger(parameters.logFile));
-		}
-
 		String versionString = VERSION.createLongVersionString();
 
 		// Printing the help guide prints and exits
@@ -87,6 +85,30 @@ public class Amidst {
 		if (parameters.printVersion) {
 			System.out.println(versionString);
 			return;
+		}
+
+		// Relaunch javaw in a native Windows console before starting any backend.
+		// Explicit java.exe launches retain their existing console or redirection.
+		try {
+			if (WindowsConsoleLauncher.relaunchIfNeeded(parameters.useGtnhWorker, args)) {
+				return;
+			}
+		} catch (IOException e) {
+			AmidstLogger.error(e);
+			AmidstMessageBox.displayError("Unable to open the Windows console",
+					e.getMessage() + "\nPlease start the Viewer using run-viewer.bat or java -jar instead.");
+			return;
+		}
+
+		Path logFile = parameters.logFile;
+		if (logFile == null && parameters.useGtnhWorker) {
+			logFile = defaultLogFile();
+		}
+		if (logFile != null) {
+			FileLogger fileLogger = new FileLogger(logFile);
+			AmidstLogger.addListener("file", fileLogger);
+			Runtime.getRuntime().addShutdownHook(new Thread(fileLogger::close, "viewer-log-flush"));
+			AmidstLogger.info("Using log file: {}", logFile.toAbsolutePath());
 		}
 
 		// Log system information
@@ -117,6 +139,21 @@ public class Amidst {
 				handleCrash(e, Thread.currentThread());
 			}
 		});
+	}
+
+	private static Path defaultLogFile() {
+		try {
+			Path location = Path.of(Amidst.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+			Path directory = Files.isDirectory(location) ? Path.of("").toAbsolutePath() : location.getParent();
+			Path candidate = directory.resolve("viewer.log");
+			if (Files.exists(candidate) ? Files.isRegularFile(candidate) && Files.isWritable(candidate)
+					: Files.isWritable(directory)) {
+				return candidate;
+			}
+		} catch (Exception e) {
+			AmidstLogger.warn(e, "Unable to locate the Viewer directory for logging");
+		}
+		return Path.of(System.getProperty("user.home"), "amidst-viewer.log");
 	}
 
 	private static String createPropertyString(String key) {

@@ -10,7 +10,7 @@ val metadata = Properties().apply {
 }
 val distributionName = metadata.getProperty("amidst.build.filename")
     ?: error("amidst.build.filename is missing from metadata.properties")
-val releaseSuffix = Regex("""-(v\d+)$""")
+val releaseSuffix = Regex("""-(v\d+(?:\.\d+)*)$""")
     .find(distributionName)
     ?.groupValues
     ?.get(1)
@@ -18,7 +18,7 @@ val releaseSuffix = Regex("""-(v\d+)$""")
 val workerReleaseName = "amidst-gtnh-worker-$releaseSuffix.jar"
 
 group = "amidst"
-version = listOf(
+version = metadata.getProperty("amidst.release.version") ?: listOf(
     metadata.getProperty("amidst.version.major"),
     metadata.getProperty("amidst.version.minor"),
     metadata.getProperty("amidst.version.patch"),
@@ -116,6 +116,12 @@ val buildWorker by tasks.registering(Exec::class) {
         "stageReleaseJar",
         "-Pgtnh.modules.codeStyle=false",
     )
+    providers.gradleProperty("rwgReferenceJar").orNull?.let {
+        workerArguments += "-PrwgReferenceJar=${file(it).absolutePath}"
+    }
+    providers.gradleProperty("gregtechReferenceJar").orNull?.let {
+        workerArguments += "-PgregtechReferenceJar=${file(it).absolutePath}"
+    }
     if (gradle.startParameter.isOffline) {
         workerArguments += "--offline"
     }

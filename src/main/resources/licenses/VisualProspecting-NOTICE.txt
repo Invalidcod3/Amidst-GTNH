@@ -1,0 +1,7 @@
+The Ores and Fluid menu icons are from VisualProspecting 1.5.39:
+https://github.com/GTNewHorizons/VisualProspecting/tree/1.5.39
+Upstream paths: assets/visualprospecting/textures/icons/oreveins.png and undergroundfluid.png.
+See VisualProspecting-LICENSE.txt for the original MIT license.
+
+The worker obtains map marker and dimension-block textures from the user's running GTNH mods.
+Those mod JARs are not redistributed with Amidst-GTNH.

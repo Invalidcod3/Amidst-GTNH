@@ -7,9 +7,11 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import com.google.gson.Gson;
@@ -19,12 +21,54 @@ import amidst.documentation.ThreadSafe;
 import amidst.gtnh.export.GtnhWaypoint;
 import amidst.gtnh.structure.GtnhStructureDescriptor;
 import amidst.logging.AmidstLogger;
-import amidst.logging.AmidstMessageBox;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
 import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
+import amidst.threading.TaskCancellation;
 
 @ThreadSafe
 public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
+
+    @Override
+    public List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() throws MinecraftInterfaceException {
+        Request request = Request.hello(token);
+        request.command = "prospecting_catalog";
+        Response response = exchange(request);
+        if (response.prospectingDimensions != null) for (var dimension : response.prospectingDimensions) {
+            if (dimension == null || dimension.key == null || dimension.oreOptions == null || dimension.fluidOptions == null)
+                throw new MinecraftInterfaceException("Worker returned an incomplete prospecting catalog; update both Viewer and Worker.");
+            for (var options : List.of(dimension.oreOptions, dimension.fluidOptions)) for (var option : options) {
+                if (option == null || option.id == null || option.id.isEmpty() || option.name == null)
+                    throw new MinecraftInterfaceException("Worker returned an invalid prospecting choice.");
+            }
+        }
+        return response.prospectingDimensions == null ? List.of() : response.prospectingDimensions;
+    }
+
+    @Override
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospect(long seed, int dimension, int x, int z,
+            int width, int height, String mode) throws MinecraftInterfaceException {
+        return prospectFiltered(seed, dimension, x, z, width, height, mode, null);
+    }
+    @Override
+    public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(long seed, int dimension, int x, int z,
+            int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws MinecraftInterfaceException {
+        Request request = Request.hello(token);
+        request.command = "prospecting"; request.seed = seed; request.dimension = dimension;
+        request.x = x; request.z = z; request.width = width; request.height = height; request.markerMode = mode;
+        request.prospectingFilter = filter;
+        Response response = exchange(request);
+        if (response.prospecting == null || response.prospecting.deposits == null)
+            throw new MinecraftInterfaceException("Worker returned invalid prospecting data");
+        if (response.prospecting.deposits.size() > 4096)
+            throw new MinecraftInterfaceException("Worker returned too many deposits");
+        for (var d : response.prospecting.deposits) {
+            if (d == null || d.id == null || d.name == null || d.source == null
+                    || ("FLUID".equals(mode) && (d.size != 128 || d.amounts == null || d.amounts.length != 64))
+                    || (d.currentAmounts != null && d.currentAmounts.length != 64))
+                throw new MinecraftInterfaceException("Worker returned an invalid deposit");
+        }
+        return response.prospecting;
+    }
 	private static final int DEFAULT_TIMEOUT_MILLIS = 30_000;
 	private static final int DEFAULT_RETRY_DELAY_MILLIS = 2_000;
 
@@ -35,6 +79,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	private final int retryDelayMillis;
 	private final Runnable offlineNotifier;
 	private final boolean waitForWorker;
+	private final boolean profileQueries = Boolean.getBoolean("amidst.gtnh.profileQueries");
 	private final Gson gson;
 	private final Object availabilityMonitor = new Object();
 
@@ -47,14 +92,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 				token,
 				DEFAULT_TIMEOUT_MILLIS,
 				DEFAULT_RETRY_DELAY_MILLIS,
-				() -> AmidstMessageBox.displayWarning(
-						"GTNH client not detected",
-						"Amidst could not detect the GTNH client at "
-								+ host
-								+ ":"
-								+ port
-								+ ".\n\nMap updates have been paused. Amidst will wait for GTNH to start "
-								+ "and resume automatically when the worker becomes available."),
+				() -> { /* Waiting is reported in the console, without a modal dialog. */ },
 				true);
 	}
 
@@ -274,7 +312,16 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	@Override
-	public List<GtnhStructureDescriptor> sampleVanillaDungeons(
+    public List<GtnhStructureDescriptor> sampleStructureGroup(long seed, int dimensionId, String dimensionKey,
+            int x, int z, int width, int height, String group) throws MinecraftInterfaceException {
+        validateStructureArea(width, height);
+        Request request = Request.structures(token, seed, dimensionId, dimensionKey, x, z, width, height, false);
+        request.structureGroup = group;
+        return toStructureDescriptors(exchange(request));
+    }
+
+    @Override
+    public List<GtnhStructureDescriptor> sampleVanillaDungeons(
 			long seed,
 			int dimensionId,
 			int blockX,
@@ -348,10 +395,12 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 
 	private Response exchange(Request request) throws MinecraftInterfaceException {
 		while (true) {
+			TaskCancellation.check();
 			awaitRecovery();
 			try {
 				return exchangeOnce(request);
 			} catch (IOException e) {
+				TaskCancellation.check();
 				if (!waitForWorker) {
 					throw new MinecraftInterfaceException(
 							"unable to communicate with GTNH biome worker at " + host + ":" + port,
@@ -363,6 +412,9 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private Response exchangeOnce(Request request) throws IOException, MinecraftInterfaceException {
+		TaskCancellation.check();
+		long startedAt = profileQueries ? System.nanoTime() : 0L;
+		request.profile = profileQueries ? Boolean.TRUE : null;
 		try (Socket socket = new Socket()) {
 			socket.connect(new InetSocketAddress(host, port), timeoutMillis);
 			socket.setSoTimeout(timeoutMillis);
@@ -374,13 +426,43 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 				writer.newLine();
 				writer.flush();
 
-				String line = reader.readLine();
+				String line;
+				try {
+					line = reader.readLine();
+				} catch (SocketTimeoutException e) {
+					TaskCancellation.check();
+					if ("hello".equals(request.command)) {
+						throw new IOException("GTNH worker is listening but has not completed its handshake; "
+								+ "waiting for the game to finish loading or resume ticking", e);
+					}
+					throw new MinecraftInterfaceException(
+							"Connected to GTNH worker at " + host + ":" + port
+									+ ", but command '" + request.command + "' timed out after "
+									+ timeoutMillis + " ms. Check the GTNH game tick and the "
+									+ "amidstgtnhworker entries in logs/fml-client-latest.log "
+									+ "(or the dedicated-server log).",
+							e);
+				}
 				if (line == null) {
+					TaskCancellation.check();
+					if ("hello".equals(request.command)) {
+						throw new IOException("GTNH worker closed the connection before completing its handshake");
+					}
 					throw new MinecraftInterfaceException("GTNH worker closed the connection without a response");
 				}
+				// Keep a successful query's result even if its tile just left the view.
+				// The loader saves this layer, then cancels before starting the next one.
 				Response response = gson.fromJson(line, Response.class);
 				if (response == null) {
 					throw new MinecraftInterfaceException("GTNH worker returned an empty response");
+				}
+				if (profileQueries) {
+					AmidstLogger.info(String.format(Locale.ROOT,
+							"GTNH performance: %s dimension=%d x=%d z=%d size=%dx%d step=%d ok=%s "
+									+ "total=%.3f ms queue=%s ms compute=%s ms",
+							request.command, request.dimension, request.x, request.z, request.width, request.height,
+							request.step, response.ok, (System.nanoTime() - startedAt) / 1_000_000.0,
+							formatMillis(response.queueMillis), formatMillis(response.computeMillis)));
 				}
 				if (response.protocol != PROTOCOL_VERSION) {
 					throw new MinecraftInterfaceException(
@@ -390,6 +472,14 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 									+ PROTOCOL_VERSION);
 				}
 				if (!response.ok) {
+					TaskCancellation.check();
+					// Protocol 18's game-thread queue timeout is transient during startup.
+					// Only hello is retried here; query failures, authentication and
+					// protocol mismatches must remain actionable errors.
+					if ("hello".equals(request.command)
+							&& "server thread did not process the query in time".equals(response.error)) {
+						throw new IOException("GTNH worker is waiting for the game thread to process its handshake");
+					}
 					throw new MinecraftInterfaceException(
 							"GTNH worker rejected the request: "
 									+ (response.error == null ? "unknown error" : response.error));
@@ -403,11 +493,16 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		}
 	}
 
+	private static String formatMillis(Double value) {
+		return value == null ? "unavailable" : String.format(Locale.ROOT, "%.3f", value);
+	}
+
 	private void awaitRecovery() throws MinecraftInterfaceException {
 		synchronized (availabilityMonitor) {
 			while (offline) {
+				TaskCancellation.check();
 				try {
-					availabilityMonitor.wait();
+					availabilityMonitor.wait(100L);
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 					throw new MinecraftInterfaceException(
@@ -433,34 +528,51 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 
 		AmidstLogger.warn(
 				initialFailure,
-				"GTNH client at {}:{} is unavailable; pausing requests until it returns",
+				"GTNH worker at {}:{} is not ready; pausing requests until its handshake succeeds",
 				host,
 				port);
+		AmidstLogger.info("Waiting for GTNH worker at {}:{}. Retrying every {} ms without an overall time limit. "
+				+ "Start GTNH with the worker enabled; the Viewer will resume automatically.",
+				host, port, retryDelayMillis);
 		try {
 			offlineNotifier.run();
 		} catch (RuntimeException e) {
 			AmidstLogger.warn(e, "Unable to display the GTNH client status notification");
 		}
-		while (true) {
-			try {
-				exchangeOnce(Request.hello(token));
-				finishRecovery();
-				AmidstLogger.info("GTNH client at {}:{} is available again; resuming requests", host, port);
-				return;
-			} catch (IOException e) {
-				waitBeforeRetry();
-			} catch (MinecraftInterfaceException e) {
-				finishRecovery();
-				throw e;
+		try {
+			long lastProgress = System.nanoTime();
+			while (true) {
+				try {
+					exchangeOnce(Request.hello(token));
+					AmidstLogger.info("GTNH client at {}:{} is available again; resuming requests", host, port);
+					return;
+				} catch (IOException e) {
+					if (System.nanoTime() - lastProgress >= 30_000_000_000L) {
+						AmidstLogger.info("Still waiting for GTNH worker at {}:{}: {}", host, port, e.getMessage());
+						lastProgress = System.nanoTime();
+					}
+					waitBeforeRetry();
+				}
 			}
+		} finally {
+			// A cancelled viewport task must release recovery ownership, so a
+			// current task can continue waiting for the Worker to start.
+			finishRecovery();
 		}
 	}
 
 	private void waitBeforeRetry() throws MinecraftInterfaceException {
 		try {
-			Thread.sleep(retryDelayMillis);
+			long deadline = System.nanoTime() + retryDelayMillis * 1_000_000L;
+			while (true) {
+				TaskCancellation.check();
+				long remainingMillis = (deadline - System.nanoTime()) / 1_000_000L;
+				if (remainingMillis <= 0) {
+					return;
+				}
+				Thread.sleep(Math.min(remainingMillis, 100L));
+			}
 		} catch (InterruptedException e) {
-			finishRecovery();
 			Thread.currentThread().interrupt();
 			throw new MinecraftInterfaceException(
 					"interrupted while waiting for the GTNH client to start",
@@ -476,6 +588,9 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private static final class Request {
+        private String markerMode;
+        private amidst.gtnh.prospecting.ProspectingData.QueryFilter prospectingFilter;
+		private Boolean profile;
 		private int protocol;
 		private String command;
 		private String token;
@@ -488,7 +603,8 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		private int height;
 		private int step;
 		private long sinceRevision;
-		private boolean vanillaDungeonsOnly;
+        private boolean vanillaDungeonsOnly;
+        private String structureGroup;
 		private GtnhWaypoint[] waypoints;
 
 		private static Request hello(String token) {
@@ -583,6 +699,10 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private static final class Response {
+        private List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
+        private amidst.gtnh.prospecting.ProspectingData.Tile prospecting;
+		private Double queueMillis;
+		private Double computeMillis;
 		private boolean ok;
 		private String error;
 		private int protocol;

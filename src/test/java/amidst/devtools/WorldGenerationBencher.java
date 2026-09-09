@@ -132,6 +132,7 @@ public class WorldGenerationBencher {
 	private Application startAmidst() throws FormatException, IOException {
 		AmidstSettings settings = new AmidstSettings(Preferences.userNodeForPackage(getClass()));
 		CommandLineParameters params = new CommandLineParameters();
+		params.setVanillaMode(true);
 		return new Application(params, settings);
 	}
 

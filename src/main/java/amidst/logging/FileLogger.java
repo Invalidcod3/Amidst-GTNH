@@ -19,16 +19,18 @@ import amidst.documentation.CalledOnlyBy;
 import amidst.documentation.NotThreadSafe;
 
 @NotThreadSafe
-public class FileLogger implements Logger {
+public class FileLogger implements Logger, AutoCloseable {
 	private final ConcurrentLinkedQueue<String> logMessageQueue = new ConcurrentLinkedQueue<>();
 	private final Path file;
 	private final ScheduledExecutorService executor;
+	private volatile boolean enabled;
 
 	@CalledOnlyBy(AmidstThread.STARTUP)
 	public FileLogger(Path file) {
 		this.file = file;
 		this.executor = createExecutor();
-		if (ensureFileExists()) {
+		this.enabled = ensureFileExists();
+		if (enabled) {
 			writeWelcomeMessageToFile();
 			start();
 		}
@@ -92,7 +94,7 @@ public class FileLogger implements Logger {
 	}
 
 	@CalledOnlyBy(AmidstThread.FILE_LOGGER)
-	private void processQueue() {
+	private synchronized void processQueue() {
 		if (!logMessageQueue.isEmpty() && Files.isRegularFile(file)) {
 			writeLogMessages();
 		}
@@ -113,6 +115,9 @@ public class FileLogger implements Logger {
 
 	@Override
 	public void log(String tag, String message) {
+		if (!enabled) {
+			return;
+		}
 		String currentTime = new Timestamp(new Date().getTime()).toString();
 		StringBuilder builder = new StringBuilder()
 				.append(currentTime)
@@ -122,5 +127,13 @@ public class FileLogger implements Logger {
 				.append(message)
 				.append("\r\n");
 		logMessageQueue.add(builder.toString());
+	}
+
+	/** Flush queued messages when the Viewer exits normally or receives console Ctrl+C. */
+	@Override
+	public void close() {
+		enabled = false;
+		executor.shutdown();
+		processQueue();
 	}
 }

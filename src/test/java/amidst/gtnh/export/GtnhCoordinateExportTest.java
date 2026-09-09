@@ -21,14 +21,14 @@ import amidst.mojangapi.world.Dimension;
 public class GtnhCoordinateExportTest {
 	@Test
 	public void catalogueContainsEveryCurrentGtnhCoordinateLayer() {
-		assertEquals(67, GtnhCoordinateType.all().size());
-		assertEquals(18, GtnhCoordinateType.forDimension(Dimension.OVERWORLD).size());
-		assertEquals(4, GtnhCoordinateType.forDimension(Dimension.NETHER).size());
-		assertEquals(6, GtnhCoordinateType.forDimension(Dimension.END).size());
-		assertEquals(2, GtnhCoordinateType.forDimension(Dimension.MOON).size());
+		assertEquals(67 + 2 * Dimension.values().length, GtnhCoordinateType.all().size());
+		assertEquals(20, GtnhCoordinateType.forDimension(Dimension.OVERWORLD).size());
+		assertEquals(6, GtnhCoordinateType.forDimension(Dimension.NETHER).size());
+		assertEquals(8, GtnhCoordinateType.forDimension(Dimension.END).size());
+		assertEquals(4, GtnhCoordinateType.forDimension(Dimension.MOON).size());
 		for (Dimension dimension : Dimension.values()) {
 			if (dimension == Dimension.BARNARDA_C) {
-				assertTrue(GtnhCoordinateType.forDimension(dimension).isEmpty());
+				assertEquals(2, GtnhCoordinateType.forDimension(dimension).size());
 				continue;
 			}
 			assertFalse(

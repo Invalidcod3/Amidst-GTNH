@@ -11,6 +11,8 @@ import amidst.fragment.layer.LayerBuilder;
 import amidst.fragment.layer.LayerManager;
 import amidst.fragment.layer.LayerReloader;
 import amidst.gtnh.worker.GtnhWorldState;
+import amidst.gtnh.worker.GtnhWorldStatePoller;
+import amidst.gtnh.worker.GtnhCursorBiomeLookup;
 import amidst.gui.export.BiomeExporterDialog;
 import amidst.gui.main.Actions;
 import amidst.gui.main.viewer.widget.*;
@@ -21,7 +23,6 @@ import amidst.mojangapi.world.WorldOptions;
 import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 import amidst.mojangapi.world.icon.WorldIcon;
 import amidst.mojangapi.world.player.MovablePlayerList;
-import amidst.logging.AmidstLogger;
 import amidst.settings.Setting;
 import amidst.threading.WorkerExecutor;
 
@@ -40,9 +41,14 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @NotThreadSafe
 public class ViewerFacade {
-	private static final long GTNH_WORLD_STATE_POLL_NANOS = 1_000_000_000L;
-	private static final long GTNH_WORLD_STATE_RETRY_NANOS = 5_000_000_000L;
-
+    private final AmidstSettings settings;
+    public amidst.AmidstSettings getSettings() { return settings; }
+    private final amidst.gtnh.prospecting.ProspectingOverlay prospecting;
+    public java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() {
+        return world.prospectingCatalog();
+    }
+    public boolean hasProspecting(Dimension dimension) { return prospecting.dimensionInfo(dimension) != null; }
+    public void refreshProspecting() { prospecting.refresh(); }
 	private final World world;
 	private final FragmentManager fragmentManager;
 	private final FragmentGraph graph;
@@ -57,8 +63,8 @@ public class ViewerFacade {
 	private final FragmentQueueProcessor fragmentQueueProcessor;
 	private final Setting<Dimension> dimensionSetting;
 	private final AtomicReference<Entry<ProgressEntryType, Integer>> progressEntryHolder;
-	private long gtnhWorldRevision = -1L;
-	private long nextGtnhWorldStatePollNanos;
+	private final GtnhWorldStatePoller gtnhWorldStatePoller;
+	private final GtnhCursorBiomeLookup cursorBiomeLookup;
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public ViewerFacade(
@@ -72,11 +78,19 @@ public class ViewerFacade {
 			BiomeSelection biomeSelection,
 			Actions actions) {
 		this.world = world;
+        this.settings = settings;
 		this.fragmentManager = fragmentManager;
 		this.zoom = zoom;
 		this.workerExecutor = workerExecutor;
 		this.biomeExporterDialog = biomeExporterDialog;
 		this.dimensionSetting = settings.dimension;
+		this.gtnhWorldStatePoller = new GtnhWorldStatePoller(
+				world::getGtnhWorldState, task -> workerExecutor.run(task::run));
+		this.cursorBiomeLookup = world.supportsGtnhWorldStateUpdates()
+				? new GtnhCursorBiomeLookup((dimension, x, z) -> world.getBiomeDataOracle(dimension)
+						.orElseThrow(() -> new IllegalStateException("No biome oracle for " + dimension))
+						.getBiomeAt(x, z, false).getName(), task -> workerExecutor.run(task::run))
+				: null;
 
 		Graphics2DAccelerationCounter accelerationCounter = new Graphics2DAccelerationCounter();
 		Movement movement = new Movement(settings.smoothScrolling);
@@ -85,7 +99,9 @@ public class ViewerFacade {
 		this.layerManager = layerBuilder.create(settings, world, biomeSelection, worldIconSelection, zoom, accelerationCounter);
 		this.graph = new FragmentGraph(layerManager.getDeclarations(), fragmentManager);
 		this.translator = new FragmentGraphToScreenTranslator(graph, zoom);
-		this.fragmentQueueProcessor = fragmentManager.createQueueProcessor(layerManager, settings.dimension);
+        this.prospecting = new amidst.gtnh.prospecting.ProspectingOverlay(world, settings, translator, zoom);
+		this.fragmentQueueProcessor = fragmentManager.createQueueProcessor(
+				layerManager, settings.dimension, world.supportsGtnhWorldStateUpdates());
 		this.layerReloader = layerManager.createLayerReloader(world);
 		this.progressEntryHolder = new AtomicReference<Entry<ProgressEntryType, Integer>>();
 
@@ -99,7 +115,7 @@ public class ViewerFacade {
 				new SeedAndWorldTypeWidget(Widget.CornerAnchorPoint.TOP_LEFT, worldOptions.getWorldSeed(), worldOptions.getWorldType()),
 				new SelectedIconWidget(Widget.CornerAnchorPoint.TOP_LEFT, worldIconSelection),
 				debugWidget,
-				new CursorInformationWidget(Widget.CornerAnchorPoint.TOP_RIGHT, graph, translator, settings.dimension, world.getBiomeList()),
+				new CursorInformationWidget(Widget.CornerAnchorPoint.TOP_RIGHT, graph, translator, settings.dimension, world.getBiomeList(), cursorBiomeLookup),
 				biomeToggleWidget,
 				new BiomeExporterProgressWidget(Widget.CornerAnchorPoint.BOTTOM_RIGHT, progressEntryHolder::get, -20, settings.showDebug, debugWidget, biomeToggleWidget.getWidth()),
 				biomeWidget
@@ -116,6 +132,8 @@ public class ViewerFacade {
 				accelerationCounter);
 
 		ViewerMouseListener viewerMouseListener = new ViewerMouseListener(new WidgetManager(widgets), graph, translator, zoom, movement, actions);
+        drawer.setProspecting(prospecting);
+        viewerMouseListener.setProspecting(prospecting);
 		this.viewer = new Viewer(viewerMouseListener, drawer);
 	}
 
@@ -136,6 +154,9 @@ public class ViewerFacade {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void dispose() {
+        prospecting.close();
+		gtnhWorldStatePoller.close();
+		if (cursorBiomeLookup != null) cursorBiomeLookup.close();
 		graph.dispose();
 		zoom.skipFading();
 		zoom.reset();
@@ -163,34 +184,17 @@ public class ViewerFacade {
 				|| dimensionSetting.get() != Dimension.OVERWORLD) {
 			return;
 		}
-		long now = System.nanoTime();
-		if (now < nextGtnhWorldStatePollNanos) {
+		GtnhWorldState state = gtnhWorldStatePoller.poll();
+		if (state == null) {
 			return;
 		}
-		nextGtnhWorldStatePollNanos = now + GTNH_WORLD_STATE_POLL_NANOS;
-		try {
-			GtnhWorldState state = world.getGtnhWorldState(gtnhWorldRevision);
-			boolean isBaseline = gtnhWorldRevision < 0L;
-			gtnhWorldRevision = state.revision();
-			if (isBaseline) {
-				return;
-			}
-			if (state.fullRefresh()) {
-				fragmentQueueProcessor.requestBiomeReloadAllUsed();
-			} else {
-				int[] chunkXs = state.chunkXs();
-				int[] chunkZs = state.chunkZs();
-				if (chunkXs.length == 0) {
-					return;
-				}
-				fragmentQueueProcessor.requestBiomeReloadForChunks(
-						chunkXs,
-						chunkZs);
-			}
-		} catch (amidst.mojangapi.minecraftinterface.MinecraftInterfaceException e) {
-			nextGtnhWorldStatePollNanos =
-					System.nanoTime() + GTNH_WORLD_STATE_RETRY_NANOS;
-			AmidstLogger.warn(e, "Unable to read GTNH overworld chunk state");
+		if (state.fullRefresh()) {
+            prospecting.refresh();
+			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
+			fragmentQueueProcessor.requestBiomeReloadAllUsed();
+		} else if (state.chunkXs().length != 0) {
+			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
+			fragmentQueueProcessor.requestBiomeReloadForChunks(state.chunkXs(), state.chunkZs());
 		}
 	}
 

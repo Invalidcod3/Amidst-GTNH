@@ -180,7 +180,17 @@ public class LayerBuilder {
 				dimension,
 				drawUnloaded,
 				enabledLayers.contains(layerId),
-				isVisibleSetting);
+                new Setting<Boolean>() {
+                    public Boolean get() {
+                        if (settings.dimension.get().isProspectingOnly()) return false;
+                        boolean structure = layerId != LayerIds.ALPHA && layerId != LayerIds.BIOME_DATA
+                                && layerId != LayerIds.BACKGROUND && layerId != LayerIds.END_ISLANDS
+                                && layerId != LayerIds.GRID && layerId != LayerIds.PLAYER;
+                        return isVisibleSetting.get() && (!structure
+                                || settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.STRUCTURE);
+                    }
+                    public void set(Boolean value) { isVisibleSetting.set(value); }
+                });
 	}
 
 	/**
