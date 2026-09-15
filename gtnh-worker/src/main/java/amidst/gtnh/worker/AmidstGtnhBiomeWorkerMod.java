@@ -15,7 +15,7 @@ import net.minecraftforge.event.world.ChunkEvent;
 @Mod(
         modid = AmidstGtnhBiomeWorkerMod.MOD_ID,
         name = "Amidst GTNH Biome Worker",
-        version = "0.3.0",
+        version = "0.3.1",
         acceptedMinecraftVersions = "[1.7.10]",
         dependencies = "before:RWG",
         acceptableRemoteVersions = "*")
@@ -129,7 +129,7 @@ public final class AmidstGtnhBiomeWorkerMod {
             AmidstGtnhWorkerLog.LOG.error(
                     "GTNH biome worker disabled after a Minecraft linkage failure. "
                             + "Install the verified reobfuscated Worker JAR from build/release. "
-                            + "See docs/worker-troubleshooting.md for build and runtime checks.",
+                            + "See docs/archive/worker-troubleshooting.md for build and runtime checks.",
                     cause);
             failedServer.close();
         }

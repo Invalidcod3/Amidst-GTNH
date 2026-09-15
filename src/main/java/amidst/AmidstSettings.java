@@ -73,6 +73,9 @@ public class AmidstSettings {
 			showGtnhSpaceStructures;
 
 	public final Setting<Boolean> smoothScrolling;
+	public final Setting<Boolean> autoImportJourneyMap;
+    public final Setting<Boolean> cacheMap;
+    public final Setting<Boolean> rememberMap;
 	public final Setting<Boolean> fragmentFading;
 	public final Setting<Boolean> maxZoom;
 	public final Setting<Boolean> showFPS;
@@ -95,6 +98,9 @@ public class AmidstSettings {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public AmidstSettings(Preferences preferences) {
+        autoImportJourneyMap = Setting.createBoolean(preferences, "autoImportJourneyMap", false);
+        cacheMap = Setting.createBoolean(preferences,"cacheMap",true);
+        rememberMap = Setting.createBoolean(preferences,"rememberMap",true);
         language = Setting.createEnum(preferences,"language",amidst.i18n.Language.systemDefault());
 		// @formatter:off
 		dimension                  = Setting.createDimension(preferences, "dimension",            Dimension.OVERWORLD);

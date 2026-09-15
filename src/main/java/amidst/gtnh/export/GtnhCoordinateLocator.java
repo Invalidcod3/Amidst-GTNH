@@ -70,7 +70,7 @@ public final class GtnhCoordinateLocator {
 						continue;
 					}
 					GtnhCoordinate coordinate =
-							new GtnhCoordinate((int) x, (int) z, icon.getName());
+							new GtnhCoordinate((int) x, (int) z, icon.getName(), icon.getHeight());
 					unique.putIfAbsent(x + "," + z, coordinate);
 				}
 			}

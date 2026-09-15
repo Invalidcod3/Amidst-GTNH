@@ -24,12 +24,17 @@ public final class GtnhCoordinateFiles {
 
 	public static void writeCsv(Path file, List<GtnhCoordinate> coordinates) throws IOException {
 		try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-			writer.write("x,z");
+            boolean hasHeight = coordinates.stream().anyMatch(coordinate -> coordinate.y() != null);
+			writer.write(hasHeight ? "x,z,y" : "x,z");
 			writer.newLine();
 			for (GtnhCoordinate coordinate : coordinates) {
 				writer.write(Integer.toString(coordinate.x()));
 				writer.write(',');
 				writer.write(Integer.toString(coordinate.z()));
+                if (hasHeight) {
+                    writer.write(',');
+                    if (coordinate.y() != null) writer.write(Integer.toString(coordinate.y()));
+                }
 				writer.newLine();
 			}
 		}
@@ -66,7 +71,7 @@ public final class GtnhCoordinateFiles {
 				.map(coordinate -> new GtnhWaypoint(
 						waypointName(type, coordinate),
 						coordinate.x(),
-						64,
+						coordinate.y() == null ? 64 : coordinate.y(),
 						coordinate.z(),
 						type.getColor().getRed(),
 						type.getColor().getGreen(),
@@ -85,7 +90,7 @@ public final class GtnhCoordinateFiles {
 		int storedZ = dimensionId == Dimension.NETHER.getId()
 				? Math.multiplyExact(coordinate.z(), 8)
 				: coordinate.z();
-		int height = 64;
+		int height = coordinate.y() == null ? 64 : coordinate.y();
 		Map<String, Object> waypoint = new LinkedHashMap<>();
 		waypoint.put("id", name + "_" + storedX + "," + height + "," + storedZ);
 		waypoint.put("name", name);
@@ -106,7 +111,7 @@ public final class GtnhCoordinateFiles {
 	private static String waypointName(
 			GtnhCoordinateType type,
 			GtnhCoordinate coordinate) {
-		return type.getDisplayName() + " " + coordinate.x() + "," + coordinate.z();
+		return (coordinate.y() != null ? coordinate.name() : type.getDisplayName()) + " " + coordinate.x() + "," + coordinate.z();
 	}
 
 	private static String sanitizeWaypointFilename(String id) {

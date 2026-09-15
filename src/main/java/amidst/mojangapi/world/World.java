@@ -278,6 +278,12 @@ public class World {
 		return gtnhRoguelikeDungeonProducers.getWorldState(sinceRevision);
 	}
 
+    public amidst.gtnh.validation.AccuracyReport validateAccuracy(Dimension dimension,int x,int z,int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
+        return gtnhRoguelikeDungeonProducers.validate(dimension,x,z,width,height,step,category,session);
+    }
+    public String getMapCacheIdentity() throws MinecraftInterfaceException { return gtnhRoguelikeDungeonProducers.cacheIdentity(); }
+    public void clearCachedPredictions() { gtnhRoguelikeDungeonProducers.clearCachedPredictions(); }
+    public void invalidateSpawn() { gtnhRoguelikeDungeonProducers.invalidateSpawn(); }
 	public int getGtnhDimensionId(Dimension dimension) {
 		return gtnhRoguelikeDungeonProducers.getDimensionId(dimension);
 	}

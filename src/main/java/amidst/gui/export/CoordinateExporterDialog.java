@@ -52,6 +52,12 @@ public final class CoordinateExporterDialog {
     private JLabel conditionsLabel;
     private ProspectingExportPanel exportOptions;
     private volatile boolean reachedLimit;
+    private volatile boolean radialExhausted;
+    private final javax.swing.JCheckBox radial = new javax.swing.JCheckBox("Export nearest points from an origin");
+    private final javax.swing.JSpinner radialCount = new javax.swing.JSpinner(new javax.swing.SpinnerNumberModel(100,1,10000,10));
+    private final java.util.List<Component> rangeEndControls = new java.util.ArrayList<>();
+    private JLabel firstPositionLabel;
+    private JLabel countLabel;
 	private final JDialog dialog;
 	private final JComboBox<Dimension> dimensionBox;
 	private final JComboBox<GtnhCoordinateType> typeBox;
@@ -131,9 +137,14 @@ public final class CoordinateExporterDialog {
 		constraints.weightx = 1.0;
 		addRow(form, constraints, 0, "Dimension:", dimensionBox);
 		addRow(form, constraints, 1, "Coordinate type:", typeBox);
-		addPositionRow(form, constraints, 2, "pos1:", x1Field, z1Field);
-		addPositionRow(form, constraints, 3, "pos2:", x2Field, z2Field);
-        conditionsLabel = addRow(form,constraints,4,"Conditions:",conditions);
+		addRow(form, constraints, 2, "Export mode:", radial);
+        firstPositionLabel = addPositionRow(form, constraints, 3, "pos1:", x1Field, z1Field);
+        int rangeStart = form.getComponentCount();
+        addPositionRow(form, constraints, 4, "pos2:", x2Field, z2Field);
+        rangeEndControls.addAll(Arrays.asList(form.getComponents()).subList(rangeStart,form.getComponentCount()));
+        countLabel = addRow(form, constraints, 5, "Number of coordinates:", radialCount);
+        radial.addActionListener(event -> updateExportMode());
+        conditionsLabel = addRow(form,constraints,6,"Conditions:",conditions);
         conditionsLabel.setVisible(exportOptions != null);
 
 		JPanel state = new JPanel(new BorderLayout(8, 4));
@@ -155,10 +166,23 @@ public final class CoordinateExporterDialog {
 		dialog.add(buttons, BorderLayout.SOUTH);
 		dialog.getRootPane().setDefaultButton(csvButton);
         I18n.localize(dialog);
+        updateExportMode();
 		dialog.pack();
 		dialog.setMinimumSize(dialog.getSize());
 		dialog.setLocationRelativeTo(dialog.getOwner());
 	}
+
+    private void updateExportMode() {
+        boolean active = radial.isSelected();
+        if (firstPositionLabel != null) firstPositionLabel.setText(I18n.text(active ? "Origin:" : "pos1:"));
+        rangeEndControls.forEach(c -> c.setVisible(!active));
+        if (countLabel != null) countLabel.setVisible(active);
+        radialCount.setVisible(active);
+        if (exportOptions != null) exportOptions.setRadial(active);
+        statusLabel.setText(I18n.text(active ? "Exports nearest first; stops at the requested count. Search can be cancelled."
+                : "Range endpoints are inclusive Minecraft X/Z coordinates."));
+        dialog.pack();
+    }
 
 	private void refreshTypes() {
 		Dimension dimension = (Dimension) dimensionBox.getSelectedItem();
@@ -180,6 +204,7 @@ public final class CoordinateExporterDialog {
             var info = world.prospectingCatalog().stream().filter(d -> dimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
             exportOptions = new ProspectingExportPanel(info,type.prospectingMode(),settings.prospectingFilter.get(),settings.prospectingMinimumFluid.get());
             conditions.add(exportOptions);
+            exportOptions.setRadial(radial.isSelected());
         }
         conditions.setVisible(exportOptions != null); conditions.revalidate(); conditions.repaint();
         if (conditionsLabel != null) conditionsLabel.setVisible(exportOptions != null);
@@ -258,6 +283,29 @@ public final class CoordinateExporterDialog {
 	}
 
 	private List<GtnhCoordinate> locate(Selection selection) throws Exception {
+        if (selection.radial) {
+            var producer = selection.options == null ? selection.type.getProducer(world) : null;
+            var result = amidst.gtnh.export.RadialCoordinateLocator.locate((x,z) -> {
+                java.util.List<GtnhCoordinate> points = new java.util.ArrayList<>();
+                if (selection.options != null) {
+                    var tile = world.prospectFiltered(selection.dimension,x,z,512,512,selection.type.prospectingMode(),selection.options.filter());
+                    for (var deposit : tile.deposits) if (selection.options.filter().accepts(deposit))
+                        points.addAll(ProspectingExport.points(deposit,selection.options,x,z,x+511,z+511));
+                } else {
+                    producer.produce(CoordinatesInWorld.from(x,z), icon -> {
+                        long px=icon.getCoordinates().getX(),pz=icon.getCoordinates().getY();
+                        if (px>=Integer.MIN_VALUE && px<=Integer.MAX_VALUE && pz>=Integer.MIN_VALUE && pz<=Integer.MAX_VALUE)
+                            points.add(new GtnhCoordinate((int)px,(int)pz,icon.getName(),icon.getHeight()));
+                    },null);
+                }
+                return points;
+            },selection.x1,selection.z1,selection.count,done -> SwingUtilities.invokeLater(() -> {
+                if (task != null && !task.isDone()) statusLabel.setText(I18n.format("Searched {0} regions outwards from the origin",done));
+            }));
+            reachedLimit = result.coordinates().size() == selection.count;
+            radialExhausted = result.exhausted();
+            return result.coordinates();
+        }
         if (selection.options != null) {
             var result = ProspectingExport.locate((x,z,filter) -> world.prospectFiltered(selection.dimension,x,z,512,512,
                     selection.type.prospectingMode(),filter),selection.options,selection.x1,selection.z1,selection.x2,selection.z2,
@@ -288,9 +336,10 @@ public final class CoordinateExporterDialog {
 					type,
 					parseCoordinate(x1Field, "pos1 X"),
 					parseCoordinate(z1Field, "pos1 Z"),
-					parseCoordinate(x2Field, "pos2 X"),
-					parseCoordinate(z2Field, "pos2 Z"), exportOptions == null ? null : exportOptions.read());
-		} catch (IllegalArgumentException e) {
+					radial.isSelected() ? 0 : parseCoordinate(x2Field, "pos2 X"),
+					radial.isSelected() ? 0 : parseCoordinate(z2Field, "pos2 Z"), exportOptions == null ? null : exportOptions.read(),
+                    radial.isSelected(), amidst.gtnh.prospecting.ProspectingFilterPanel.readInteger(radialCount));
+		} catch (IllegalArgumentException | java.text.ParseException e) {
 			showError(e.getMessage());
 			return null;
 		}
@@ -332,7 +381,7 @@ public final class CoordinateExporterDialog {
 			ExceptionalIntSupplier operation,
 			java.util.function.IntConsumer onSuccess) {
 		setBusy(true, status);
-        reachedLimit = false;
+        reachedLimit = false; radialExhausted = false;
 		task = new SwingWorker<>() {
 			@Override
 			protected Integer doInBackground() throws Exception {
@@ -363,6 +412,7 @@ public final class CoordinateExporterDialog {
 
 	private void setBusy(boolean busy, String status) {
 		dimensionBox.setEnabled(!busy);
+        radial.setEnabled(!busy); radialCount.setEnabled(!busy);
         if (exportOptions != null) exportOptions.setControlsEnabled(!busy);
 		typeBox.setEnabled(!busy);
 		x1Field.setEnabled(!busy);
@@ -374,6 +424,7 @@ public final class CoordinateExporterDialog {
 		importButton.setEnabled(!busy);
 		progressBar.setVisible(busy);
 		statusLabel.setText(I18n.text(status));
+        if (!busy) updateExportMode();
 		dialog.pack();
 	}
 
@@ -445,7 +496,7 @@ public final class CoordinateExporterDialog {
 				Dimension.TWILIGHT_FOREST
 		};
 		return java.util.stream.Stream.concat(Arrays.stream(preferredOrder),
-                        Arrays.stream(Dimension.values()).filter(Dimension::isProspectingOnly))
+                        Arrays.stream(Dimension.values()).filter(Dimension::isAdditional))
 				.filter(dimension -> GtnhCoordinateType.hasContent(dimension, world.prospectingCatalog()))
 				.toArray(Dimension[]::new);
 	}
@@ -480,7 +531,7 @@ public final class CoordinateExporterDialog {
         return labelComponent;
 	}
 
-	private static void addPositionRow(
+	private static JLabel addPositionRow(
 			JPanel panel,
 			GridBagConstraints constraints,
 			int row,
@@ -490,21 +541,22 @@ public final class CoordinateExporterDialog {
 		constraints.gridx = 0;
 		constraints.gridy = row;
 		constraints.weightx = 0.0;
-		panel.add(new JLabel(label), constraints);
+		JLabel positionLabel = new JLabel(label);
+        panel.add(positionLabel, constraints);
 		constraints.gridx = 1;
-		panel.add(new JLabel("["), constraints);
+		panel.add(new JLabel("X:"), constraints);
 		constraints.gridx = 2;
 		constraints.weightx = 1.0;
 		panel.add(xField, constraints);
 		constraints.gridx = 3;
 		constraints.weightx = 0.0;
-		panel.add(new JLabel("], ["), constraints);
+		panel.add(new JLabel("Z:"), constraints);
 		constraints.gridx = 4;
 		constraints.weightx = 1.0;
 		panel.add(zField, constraints);
 		constraints.gridx = 5;
 		constraints.weightx = 0.0;
-		panel.add(new JLabel("]"), constraints);
+		return positionLabel;
 	}
 
 	private void showError(String message) {
@@ -515,7 +567,8 @@ public final class CoordinateExporterDialog {
 				JOptionPane.ERROR_MESSAGE);
 	}
     private String notice(String message) {
-        return message + (reachedLimit ? "\n" + I18n.text("Reached the coordinate limit; stopped scanning.") : "");
+        return message + (radialExhausted ? "\n" + I18n.text("Search limit reached before finding enough points. Only confirmed nearest points were exported.") : "")
+                + (reachedLimit ? "\n" + I18n.text("Reached the coordinate limit; stopped scanning.") : "");
     }
 
 	@FunctionalInterface
@@ -529,6 +582,6 @@ public final class CoordinateExporterDialog {
 			int x1,
 			int z1,
 			int x2,
-			int z2, ProspectingExport.Options options) {
+			int z2, ProspectingExport.Options options, boolean radial, int count) {
 	}
 }

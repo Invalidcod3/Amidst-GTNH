@@ -69,6 +69,18 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
         }
         return response.prospecting;
     }
+    @Override public amidst.gtnh.validation.AccuracyReport validate(long seed,int dimension,String key,int x,int z,
+            int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
+        Request request=Request.hello(token);request.command="validate";request.seed=seed;request.dimension=dimension;
+        request.dimensionKey=key;request.x=x;request.z=z;request.width=width;request.height=height;request.step=step;
+        request.category=category;request.expectedSession=session;
+        var report=exchange(request).accuracy;
+        if(report==null || report.details==null || report.details.size()>1000 || report.worldSession==null
+                || !category.equals(report.category) || report.dimension!=dimension || report.seed!=seed
+                || report.matched<0 || report.mismatched<0 || report.unverified<0)
+            throw new MinecraftInterfaceException("Worker returned an invalid accuracy report");
+        return report;
+    }
 	private static final int DEFAULT_TIMEOUT_MILLIS = 30_000;
 	private static final int DEFAULT_RETRY_DELAY_MILLIS = 2_000;
 
@@ -84,6 +96,28 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	private final Object availabilityMonitor = new Object();
 
 	private boolean offline;
+    private volatile String lastWorldSession;
+    private volatile long retryCacheAfter;
+    private static final long CACHE_RETRY_NANOS = 30_000_000_000L;
+    private static final int CACHE_TIMEOUT_MILLIS = 2000;
+    private final amidst.gtnh.cache.MapStorage mapCache = new amidst.gtnh.cache.MapStorage(amidst.gtnh.cache.MapStorage.root().resolve("biomes"));
+    @Override public String cacheIdentity(long seed) throws MinecraftInterfaceException {
+        Request request = Request.hello(token);request.command="cache_context";request.seed=seed;
+        Response response = optionalCacheContext(request);
+        return response == null ? null : response.cacheIdentity;
+    }
+
+    /** A slow or unavailable optimization must not prevent a real biome query. */
+    private Response optionalCacheContext(Request request) {
+        if (retryCacheAfter != 0 && System.nanoTime() - retryCacheAfter < 0) return null;
+        try {
+            return exchangeOnce(request, Math.min(timeoutMillis, CACHE_TIMEOUT_MILLIS));
+        } catch (IOException | MinecraftInterfaceException failure) {
+            retryCacheAfter = System.nanoTime() + CACHE_RETRY_NANOS;
+            AmidstLogger.warn(failure, "Disk map cache is temporarily unavailable; loading maps directly");
+            return null;
+        }
+    }
 
 	public GtnhBiomeWorkerClient(String host, int port, String token) {
 		this(
@@ -196,7 +230,11 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	public GtnhWorldState getWorldState(long sinceRevision)
 			throws MinecraftInterfaceException {
 		Response response = exchange(Request.worldState(token, sinceRevision));
-		int[] chunkXs = response.chunkXs == null ? new int[0] : response.chunkXs;
+		if (response.worldSession != null) {
+            if (!response.worldSession.equals(lastWorldSession)) response.fullRefresh = true;
+            lastWorldSession = response.worldSession;
+        }
+        int[] chunkXs = response.chunkXs == null ? new int[0] : response.chunkXs;
 		int[] chunkZs = response.chunkZs == null ? new int[0] : response.chunkZs;
 		try {
 			return new GtnhWorldState(
@@ -242,16 +280,16 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 			int height,
 			int step) throws MinecraftInterfaceException {
 		validateArea(width, height, step);
-		Response response = exchange(Request.biomes(
-				token,
-				seed,
-				dimensionId,
-				dimensionKey,
-				blockX,
-				blockZ,
-				width,
-				height,
-				step));
+        Request request = Request.biomes(token,seed,dimensionId,dimensionKey,blockX,blockZ,width,height,step);
+        if (amidst.gtnh.cache.MapStorage.enabled && width*height>=64) {
+            request.command="cache_context";
+            Response context=optionalCacheContext(request);
+            request.cacheStamp=context == null ? null : context.cacheStamp;
+            int[] cached=mapCache.read(request.cacheStamp,width*height);
+            if(cached!=null)return cached;
+            request.command="biomes";
+        }
+        Response response=exchange(request);
 		int expectedLength = Math.multiplyExact(width, height);
 		if (response.ids == null || response.ids.length != expectedLength) {
 			throw new MinecraftInterfaceException(
@@ -260,14 +298,25 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 							+ " biome ids; expected "
 							+ expectedLength);
 		}
+		mapCache.write(response.cacheStamp,response.ids);
 		return response.ids;
 	}
 
 	@Override
 	public CoordinatesInWorld sampleSpawn(long seed, int dimensionId)
 			throws MinecraftInterfaceException {
+        GtnhSpawnPoint spawn = sampleSpawnPoint(seed, dimensionId);
+        return spawn == null ? null : spawn.coordinates();
+    }
+
+    @Override public GtnhSpawnPoint sampleSpawnPoint(long seed, int dimensionId) throws MinecraftInterfaceException {
 		Response response = exchange(Request.spawn(token, seed, dimensionId));
-		return CoordinatesInWorld.from(response.spawnX, response.spawnZ);
+        if ("UNAVAILABLE".equals(response.spawnSource)) return null;
+        if (response.spawnX == null || response.spawnZ == null
+                || ("RECORDED".equals(response.spawnSource) && response.spawnY == null)
+                || !("RECORDED".equals(response.spawnSource) || "ESTIMATED".equals(response.spawnSource)))
+            throw new MinecraftInterfaceException("Worker returned incomplete world spawn data");
+        return new GtnhSpawnPoint(response.spawnX, response.spawnY, response.spawnZ, response.spawnSource);
 	}
 
 	@Override
@@ -370,7 +419,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 						structure.subtype,
 						structure.x,
 						structure.z,
-						structure.certainty))
+						structure.certainty, structure.y))
 				.toList();
 	}
 
@@ -412,12 +461,16 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private Response exchangeOnce(Request request) throws IOException, MinecraftInterfaceException {
+		return exchangeOnce(request, timeoutMillis);
+	}
+
+	private Response exchangeOnce(Request request, int requestTimeoutMillis) throws IOException, MinecraftInterfaceException {
 		TaskCancellation.check();
 		long startedAt = profileQueries ? System.nanoTime() : 0L;
 		request.profile = profileQueries ? Boolean.TRUE : null;
 		try (Socket socket = new Socket()) {
-			socket.connect(new InetSocketAddress(host, port), timeoutMillis);
-			socket.setSoTimeout(timeoutMillis);
+			socket.connect(new InetSocketAddress(host, port), requestTimeoutMillis);
+			socket.setSoTimeout(requestTimeoutMillis);
 			try (BufferedWriter writer = new BufferedWriter(
 					new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
 					BufferedReader reader = new BufferedReader(
@@ -438,7 +491,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 					throw new MinecraftInterfaceException(
 							"Connected to GTNH worker at " + host + ":" + port
 									+ ", but command '" + request.command + "' timed out after "
-									+ timeoutMillis + " ms. Check the GTNH game tick and the "
+									+ requestTimeoutMillis + " ms. Check the GTNH game tick and the "
 									+ "amidstgtnhworker entries in logs/fml-client-latest.log "
 									+ "(or the dedicated-server log).",
 							e);
@@ -482,7 +535,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 					}
 					throw new MinecraftInterfaceException(
 							"GTNH worker rejected the request: "
-									+ (response.error == null ? "unknown error" : response.error));
+									+ (response.error == null ? "unknown error" : amidst.i18n.I18n.text(response.error)));
 				}
 				return response;
 			}
@@ -588,6 +641,8 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private static final class Request {
+        private String category, expectedSession;
+        private String cacheStamp;
         private String markerMode;
         private amidst.gtnh.prospecting.ProspectingData.QueryFilter prospectingFilter;
 		private Boolean profile;
@@ -699,6 +754,8 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 	}
 
 	private static final class Response {
+        private amidst.gtnh.validation.AccuracyReport accuracy;
+        private String cacheIdentity, cacheStamp, worldSession;
         private List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
         private amidst.gtnh.prospecting.ProspectingData.Tile prospecting;
 		private Double queueMillis;
@@ -728,8 +785,8 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		private BiomeDescriptor[] biomes;
 		private int[] ids;
 		private StructureDescriptor[] structures;
-		private int spawnX;
-		private int spawnZ;
+        private Integer spawnX, spawnY, spawnZ;
+        private String spawnSource;
 		private int importedWaypoints;
 		private long worldRevision;
 		private boolean fullRefresh;
@@ -754,5 +811,6 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
 		private int x;
 		private int z;
 		private String certainty;
+        private Integer y;
 	}
 }

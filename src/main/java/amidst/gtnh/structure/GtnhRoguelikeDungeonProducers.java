@@ -25,7 +25,7 @@ public final class GtnhRoguelikeDungeonProducers {
 
 	private final GtnhMinecraftInterface minecraftInterface;
 	private final long seed;
-	private final CoordinatesInWorld worldSpawn;
+    private final amidst.mojangapi.world.oracle.WorldSpawnOracle worldSpawn;
     private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> cache;
     private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> thaumcraftCache = createFragmentCache();
 	private final Map<CoordinatesInWorld, List<GtnhStructureDescriptor>> netherCache;
@@ -67,7 +67,7 @@ public final class GtnhRoguelikeDungeonProducers {
 	public GtnhRoguelikeDungeonProducers(
 			GtnhMinecraftInterface minecraftInterface,
 			long seed,
-			CoordinatesInWorld worldSpawn) {
+            amidst.mojangapi.world.oracle.WorldSpawnOracle worldSpawn) {
 		this.minecraftInterface = minecraftInterface;
 		this.seed = seed;
 		this.worldSpawn = worldSpawn;
@@ -159,9 +159,35 @@ public final class GtnhRoguelikeDungeonProducers {
 					new int[0],
 					new int[0]);
 		}
-		return minecraftInterface.getWorldState(sinceRevision);
+        GtnhWorldState state = minecraftInterface.getWorldState(sinceRevision);
+        if (worldSpawn instanceof amidst.gtnh.worker.GtnhSpawnOracle spawn) {
+            if (state.fullRefresh()) spawn.invalidate();
+            try {
+                if (spawn.refresh()) return new GtnhWorldState(state.revision(), true, state.chunkXs(), state.chunkZs());
+            } catch (MinecraftInterfaceException e) {
+                // Spawn replay can outlive a socket timeout. Terrain/state updates
+                // remain useful and the retained Worker search resumes on the next poll.
+                amidst.logging.AmidstLogger.warn(e, "Unable to refresh GTNH world spawn");
+            }
+        }
+        return state;
 	}
 
+    public void invalidateSpawn() {
+        if (worldSpawn instanceof amidst.gtnh.worker.GtnhSpawnOracle spawn) spawn.invalidate();
+    }
+
+    public amidst.gtnh.validation.AccuracyReport validate(Dimension dimension,int x,int z,int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
+        if(minecraftInterface==null)throw new MinecraftInterfaceException("Accuracy validation requires a GTNH Worker");
+        return minecraftInterface.validate(seed,dimension,x,z,width,height,step,category,session);
+    }
+    public String cacheIdentity() throws MinecraftInterfaceException { return minecraftInterface==null?null:minecraftInterface.cacheIdentity(seed); }
+    private long cacheGeneration;
+    public synchronized void clearCachedPredictions() {
+        cacheGeneration++;
+        cache.clear(); thaumcraftCache.clear(); netherCache.clear(); endCache.clear(); moonCache.clear();
+        twilightForestCache.clear(); dungeonCache.clear(); spaceCaches.values().forEach(Map::clear);
+    }
 	public int getDimensionId(Dimension dimension) {
 		return minecraftInterface == null
 				? dimension.getId()
@@ -291,7 +317,9 @@ public final class GtnhRoguelikeDungeonProducers {
 												? twilightForestCache
                         : cache;
         if (thaumcraft) selectedCache = thaumcraftCache;
-		List<GtnhStructureDescriptor> cached = selectedCache.get(corner);
+        long generation;
+        List<GtnhStructureDescriptor> cached;
+        synchronized(this) { generation=cacheGeneration; cached=selectedCache.get(corner); }
 		if (cached != null) {
 			return cached;
 		}
@@ -315,7 +343,7 @@ public final class GtnhRoguelikeDungeonProducers {
 							Fragment.SIZE,
                             Fragment.SIZE,
                             dimension == Dimension.OVERWORLD ? (thaumcraft ? "thaumcraft" : "standard") : null));
-			selectedCache.put(corner, loaded);
+			synchronized(this) { if(generation==cacheGeneration)selectedCache.put(corner, loaded); }
 			return loaded;
 		} catch (MinecraftInterfaceException e) {
 			throw new IllegalStateException(
@@ -373,20 +401,18 @@ public final class GtnhRoguelikeDungeonProducers {
 				Consumer<WorldIcon> consumer,
 				Void additionalData) {
 			if (type == GtnhOverworldStructureType.WORLD_SPAWN) {
-				if (worldSpawn != null
+                WorldIcon icon = worldSpawn instanceof amidst.gtnh.worker.GtnhSpawnOracle spawn ? spawn.icon(type.getIcon())
+                        : worldSpawn == null || worldSpawn.get() == null ? null
+                        : new WorldIcon(worldSpawn.get(), type.getDisplayName(), type.getIcon(), Dimension.OVERWORLD, false);
+				if (icon != null
 						&& CoordinateUtils.isInBounds(
-								worldSpawn.getX(),
-								worldSpawn.getY(),
+                                icon.getCoordinates().getX(),
+                                icon.getCoordinates().getY(),
 								corner.getX(),
 								corner.getY(),
 								Fragment.SIZE,
 								Fragment.SIZE)) {
-					consumer.accept(new WorldIcon(
-							worldSpawn,
-							type.getDisplayName(),
-							type.getIcon(),
-							Dimension.OVERWORLD,
-							false));
+                    consumer.accept(icon);
 				}
 				return;
 			}
@@ -403,12 +429,17 @@ public final class GtnhRoguelikeDungeonProducers {
 						&& !structure.subtype().isBlank()
 								? type.getDisplayName() + " (Y " + structure.subtype() + ")"
 								: type.getDisplayName();
+				Integer height = null;
+				if (vanillaDungeonsOnly && structure.subtype() != null) {
+					try { height = Integer.valueOf(structure.subtype()); }
+					catch (NumberFormatException ignored) { /* Older workers may omit the height. */ }
+				}
 				consumer.accept(new WorldIcon(
 						CoordinatesInWorld.from(structure.x(), structure.z()),
 						label,
 						type.getIcon(),
 						Dimension.OVERWORLD,
-						false));
+						false, height));
 			}
 		}
 	}
@@ -474,7 +505,7 @@ public final class GtnhRoguelikeDungeonProducers {
 						label,
 						type.getIcon(structure.subtype()),
 						Dimension.END,
-						false));
+						false, structure.y()));
 			}
 		}
 	}

@@ -77,7 +77,9 @@ public class WorldBuilder {
 					true,
 					WorldPlayerType.from(saveGame)),
 				versionFeatures,
-				new ImmutableWorldSpawnOracle(saveGame.getWorldSpawn()));
+                minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface
+                        ? versionFeatures.get(FeatureKey.WORLD_SPAWN_ORACLE)
+                        : new ImmutableWorldSpawnOracle(saveGame.getWorldSpawn()));
 	}
 
 	private VersionFeatures initInterfaceAndGetFeatures(WorldOptions worldOptions, MinecraftInterface minecraftInterface)
@@ -129,7 +131,7 @@ public class WorldBuilder {
 			if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnhInterface) {
 				features.withValueReplacing(
 						FeatureKey.WORLD_SPAWN_ORACLE,
-						new ImmutableWorldSpawnOracle(gtnhInterface.getWorldSpawn(seed)));
+                        new amidst.gtnh.worker.GtnhSpawnOracle(() -> gtnhInterface.getWorldSpawnPoint(seed)));
 			}
 		}
 		return features.create(recognisedVersion);
@@ -164,7 +166,7 @@ public class WorldBuilder {
 						? new GtnhRoguelikeDungeonProducers(
 								gtnh,
 								versionFeatures.get(FeatureKey.WORLD_OPTIONS).getWorldSeed().getLong(),
-								worldSpawnOracle.get())
+                                worldSpawnOracle)
 						: GtnhRoguelikeDungeonProducers.empty();
 
 		return new World(

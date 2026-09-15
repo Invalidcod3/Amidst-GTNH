@@ -6,7 +6,7 @@
 PID. `JfrFlameReport.java` (JDK 21+) streams a recording into searchable offline
 flame graphs and summary JSON. Native samples and overlapping blocking durations
 are deliberately separated from Java execution samples. See
-[the v36 live investigation](../../docs/gtnh-v36-jfr-findings.md) for measurements,
+[the v36 live investigation](../../docs/archive/gtnh-v36-jfr-findings.md) for measurements,
 interpretation and reproduction commands.
 
 ## Release verification

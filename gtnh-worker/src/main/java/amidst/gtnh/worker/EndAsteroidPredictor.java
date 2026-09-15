@@ -17,25 +17,12 @@ final class EndAsteroidPredictor {
     private static final int END_DIMENSION = 1;
     private static final int BLOCKS_PER_CHUNK = 16;
     private static final int MAX_CANDIDATES = 262144;
-    private static final long GALACTIC_GREG_OFFSET = 588283L;
 
     private Algorithm algorithm;
 
     private Object currentEndDefinition;
-    private Object currentAsteroidConfig;
-    private Method currentGetAsteroidMaterial;
-    private Method currentGetStoneCategory;
-    private Method currentVeins;
-    private Method currentInDimension;
-    private Method currentInStone;
-    private Method currentFindRandom;
-    private Field currentEnabled;
-    private Field currentProbability;
-    private Field currentMinY;
-    private Field currentMaxY;
-    private Method currentHeeExclusion;
-    private Method currentChaosExclusion;
-    private int currentChaosRadius;
+    private Object currentWorldDefinition;
+    private final AsteroidProspecting currentProspecting = new AsteroidProspecting();
 
     private List<?> legacyLayers;
     private Field legacyWeight;
@@ -86,73 +73,28 @@ final class EndAsteroidPredictor {
                                 : "Legacy GT End asteroid",
                         candidate.x,
                         candidate.z,
-                        algorithm == Algorithm.CURRENT ? "EXACT_SEED" : "POSSIBLE"));
+                        algorithm == Algorithm.CURRENT ? "EXACT_SEED" : "POSSIBLE", candidate.y));
             }
         }
         return result;
     }
 
     private Candidate selectCurrent(long worldSeed, int chunkX, int chunkZ) {
+        net.minecraft.world.WorldServer world = net.minecraftforge.common.DimensionManager.getWorld(END_DIMENSION);
+        if (world == null || world.getSeed() != worldSeed) return null;
         try {
-            if (!currentEnabled.getBoolean(currentAsteroidConfig)
-                    || isCurrentExclusion(chunkX, chunkZ)) {
-                return null;
-            }
-            int probability = currentProbability.getInt(currentAsteroidConfig);
-            long seed = currentSeed(worldSeed, chunkX, chunkZ);
-            if (new GtnhXstrRandom(seed).nextInt(100) > probability) {
-                return null;
-            }
-
-            GtnhXstrRandom random = new GtnhXstrRandom(seed);
-            Object stone = currentGetAsteroidMaterial.invoke(
-                    currentEndDefinition,
-                    (Random) random.copy());
-            if (stone == null) {
-                return null;
-            }
-            Object stoneCategory = currentGetStoneCategory.invoke(stone);
-
-            // One in five GalacticGreg asteroids selects a small ore instead
-            // of an ore vein; none of the requested markers is a small ore.
-            if (random.nextInt(5) == 0) {
-                return null;
-            }
-            Object query = currentVeins.invoke(null);
-            currentInDimension.invoke(query, currentEndDefinition);
-            currentInStone.invoke(query, stoneCategory);
-            Object layer = currentFindRandom.invoke(query, (Random) random.copy());
-            String kind = kindForMix(worldgenName(layer));
-            if (kind == null) {
-                return null;
-            }
-
-            int x = chunkX * BLOCKS_PER_CHUNK + random.nextInt(BLOCKS_PER_CHUNK);
-            int minY = currentMinY.getInt(currentAsteroidConfig);
-            int maxY = currentMaxY.getInt(currentAsteroidConfig);
-            random.nextInt(maxY - minY);
-            int z = chunkZ * BLOCKS_PER_CHUNK + random.nextInt(BLOCKS_PER_CHUNK);
-            return new Candidate(kind, x, z);
+            if (!(Boolean) ProspectingReflection.call(currentWorldDefinition, "generatesAsteroids")) return null;
+            Object effective = AsteroidProspecting.effectiveDefinition(worldSeed, END_DIMENSION,
+                    currentWorldDefinition, chunkX, chunkZ);
+            if (effective != currentEndDefinition) return null;
+            amidst.gtnh.prospecting.ProspectingData.Deposit deposit = currentProspecting.predict(
+                    worldSeed, END_DIMENSION, chunkX, chunkZ, effective);
+            if (deposit == null || !"ASTEROID_VEIN".equals(deposit.kind)) return null;
+            String kind = kindForMix(deposit.id.substring("asteroid.vein:".length()));
+            return kind == null ? null : new Candidate(kind, deposit.x, deposit.z, deposit.y);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("unable to select a GalacticGreg End asteroid", e);
         }
-    }
-
-    private boolean isCurrentExclusion(int chunkX, int chunkZ)
-            throws ReflectiveOperationException {
-        if ((long) chunkX * chunkX + (long) chunkZ * chunkZ <= 16L * 16L) {
-            return true;
-        }
-        if (currentHeeExclusion != null
-                && ((Boolean) currentHeeExclusion.invoke(null, chunkX, chunkZ)).booleanValue()) {
-            return true;
-        }
-        return currentChaosExclusion != null
-                && ((Boolean) currentChaosExclusion.invoke(
-                        null,
-                        chunkX,
-                        chunkZ,
-                        currentChaosRadius)).booleanValue();
     }
 
     private Candidate selectLegacy(long worldSeed, int chunkX, int chunkZ) {
@@ -229,53 +171,11 @@ final class EndAsteroidPredictor {
         }
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private void prepareCurrentRegistry() throws ReflectiveOperationException {
-        Class<?> dimensionDefClass = Class.forName("galacticgreg.api.enums.DimensionDef");
-        Object dimensionEnum = Enum.valueOf((Class<? extends Enum>) dimensionDefClass, "EndAsteroids");
-        currentEndDefinition = dimensionDefClass.getField("modDimensionDef").get(dimensionEnum);
-
-        Class<?> modDimensionDefClass = Class.forName("galacticgreg.api.ModDimensionDef");
-        currentGetAsteroidMaterial =
-                modDimensionDefClass.getMethod("getRandomAsteroidMaterial", Random.class);
-        currentGetStoneCategory =
-                Class.forName("gregtech.api.interfaces.IStoneType").getMethod("getCategory");
-
-        Class<?> dynamicConfigClass =
-                Class.forName("galacticgreg.dynconfig.DynamicDimensionConfig");
-        Method getAsteroidConfig =
-                dynamicConfigClass.getMethod("getAsteroidConfig", modDimensionDefClass);
-        currentAsteroidConfig =
-                getAsteroidConfig.invoke(null, currentEndDefinition);
-        if (currentAsteroidConfig == null) {
-            throw new IllegalStateException("End asteroid dynamic config is not initialized");
-        }
-        Class<?> asteroidConfigClass = currentAsteroidConfig.getClass();
-        currentEnabled = asteroidConfigClass.getField("Enabled");
-        currentProbability = asteroidConfigClass.getField("Probability");
-        currentMinY = asteroidConfigClass.getField("AsteroidMinY");
-        currentMaxY = asteroidConfigClass.getField("AsteroidMaxY");
-
-        Class<?> queryClass = Class.forName("gregtech.common.worldgen.WorldgenQuery");
-        currentVeins = queryClass.getMethod("veins");
-        currentInDimension = queryClass.getMethod("inDimension", modDimensionDefClass);
-        currentInStone = queryClass.getMethod(
-                "inStone",
-                Class.forName("gregtech.api.interfaces.IStoneCategory"));
-        currentFindRandom = queryClass.getMethod("findRandom", Random.class);
-
-        currentHeeExclusion = optionalMethod(
-                "gregtech.common.worldgen.HEEIslandScanner",
-                "isWithinRangeOfIsland",
-                Integer.TYPE,
-                Integer.TYPE);
-        currentChaosExclusion = optionalMethod(
-                "gregtech.common.worldgen.ChaosIslandLocator",
-                "isWithinRange",
-                Integer.TYPE,
-                Integer.TYPE,
-                Integer.TYPE);
-        currentChaosRadius = readChaosRadius();
+        Class<?> definitions = Class.forName("galacticgreg.api.enums.DimensionDef");
+        currentEndDefinition = AsteroidProspecting.endAsteroids();
+        currentWorldDefinition = ProspectingReflection.field(
+                ProspectingReflection.field(definitions, "TheEnd"), "modDimensionDef");
     }
 
     private void prepareLegacyRegistry() throws ReflectiveOperationException {
@@ -297,32 +197,6 @@ final class EndAsteroidPredictor {
         legacyProbability = config.getClass()
                 .getField("EndAsteroidProbability")
                 .getInt(config);
-    }
-
-    private static Method optionalMethod(String className, String methodName, Class<?>... types) {
-        try {
-            return Class.forName(className).getMethod(methodName, types);
-        } catch (ReflectiveOperationException | LinkageError e) {
-            return null;
-        }
-    }
-
-    private static int readChaosRadius() {
-        try {
-            Class<?> galacticGreg = Class.forName("galacticgreg.GalacticGreg");
-            Object config = galacticGreg.getField("GalacticConfig").get(null);
-            return config.getClass().getField("ChaosIslandExclusionRadius").getInt(config);
-        } catch (ReflectiveOperationException | LinkageError e) {
-            return 0;
-        }
-    }
-
-    private static long currentSeed(long worldSeed, int chunkX, int chunkZ) {
-        return chunkX * 341873128712L
-                + chunkZ * 132897987541L
-                + END_DIMENSION
-                + GALACTIC_GREG_OFFSET
-                + worldSeed;
     }
 
     private static String kindForMix(String name) {
@@ -380,11 +254,16 @@ final class EndAsteroidPredictor {
         private final String kind;
         private final int x;
         private final int z;
+        private final Integer y;
 
         private Candidate(String kind, int x, int z) {
+            this(kind, x, z, null);
+        }
+        private Candidate(String kind, int x, int z, Integer y) {
             this.kind = kind;
             this.x = x;
             this.z = z;
+            this.y = y;
         }
     }
 }

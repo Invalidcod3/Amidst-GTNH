@@ -204,6 +204,9 @@ final class SpaceDimensionSampler {
             int width,
             int height,
             int step) {
+        return sample(seed,dimension,dimensionKey,x,z,width,height,step,true);
+    }
+    int[] sample(long seed,int dimension,String dimensionKey,int x,int z,int width,int height,int step,boolean useRecorded) {
         int virtualBiome = virtualBiomeId(dimensionKey, dimension);
         if (virtualBiome >= 0) {
             int[] result = new int[Math.multiplyExact(width, height)];
@@ -220,7 +223,7 @@ final class SpaceDimensionSampler {
         boolean ross = matches(dimensionKey, "bartworks:ross128b", dimension, ross128bDimensionId());
         boolean deepDark = matches(dimensionKey, "extrautilities:deep_dark", dimension, deepDarkDimensionId());
         net.minecraft.world.WorldServer world = net.minecraftforge.common.DimensionManager.getWorld(dimension);
-        boolean useLive = (ross || deepDark) && world != null && world.getWorldInfo().getSeed() == seed;
+        boolean useLive = useRecorded && (ross || deepDark) && world != null && world.getWorldInfo().getSeed() == seed;
         WorldChunkManager manager;
         if (matches(dimensionKey, "galaxyspace:io", dimension, ioDimensionId())) {
             manager = getManager(
@@ -357,7 +360,7 @@ final class SpaceDimensionSampler {
         throw failure;
     }
 
-    private static int virtualBiomeId(String dimensionKey, int dimension) {
+    static int virtualBiomeId(String dimensionKey, int dimension) {
         if (matches(dimensionKey, "galaxyspace:ceres", dimension, ceresDimensionId())) {
             return CERES_DISPLAY_BIOME;
         }

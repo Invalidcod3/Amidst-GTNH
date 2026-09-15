@@ -5,5 +5,9 @@ public record GtnhStructureDescriptor(
 		String subtype,
 		int x,
 		int z,
-		String certainty) {
+		String certainty,
+        Integer y) {
+    public GtnhStructureDescriptor(String kind, String subtype, int x, int z, String certainty) {
+        this(kind, subtype, x, z, certainty, null);
+    }
 }

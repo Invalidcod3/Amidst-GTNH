@@ -10,6 +10,10 @@ import amidst.fragment.FragmentQueueProcessor;
 import amidst.fragment.layer.LayerBuilder;
 import amidst.fragment.layer.LayerManager;
 import amidst.fragment.layer.LayerReloader;
+import amidst.gtnh.export.GtnhMapWaypoint;
+import amidst.gtnh.export.JourneyMapAutoImport;
+import amidst.i18n.I18n;
+import amidst.logging.AmidstLogger;
 import amidst.gtnh.worker.GtnhWorldState;
 import amidst.gtnh.worker.GtnhWorldStatePoller;
 import amidst.gtnh.worker.GtnhCursorBiomeLookup;
@@ -65,6 +69,14 @@ public class ViewerFacade {
 	private final AtomicReference<Entry<ProgressEntryType, Integer>> progressEntryHolder;
 	private final GtnhWorldStatePoller gtnhWorldStatePoller;
 	private final GtnhCursorBiomeLookup cursorBiomeLookup;
+	private final JourneyMapAutoImport journeyMapAutoImport;
+	private String journeyMapStatus;
+    private String viewIdentity;
+    private long viewGeneration;
+    private volatile boolean disposed;
+    private javax.swing.Timer viewSaveTimer;
+    private final java.nio.file.Path viewsPath = amidst.gtnh.cache.MapStorage.root().resolve("views");
+	private long journeyMapStatusUntil;
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public ViewerFacade(
@@ -79,11 +91,22 @@ public class ViewerFacade {
 			Actions actions) {
 		this.world = world;
         this.settings = settings;
+        amidst.gtnh.cache.MapStorage.enabled=settings.cacheMap.get();
 		this.fragmentManager = fragmentManager;
 		this.zoom = zoom;
 		this.workerExecutor = workerExecutor;
 		this.biomeExporterDialog = biomeExporterDialog;
 		this.dimensionSetting = settings.dimension;
+		this.journeyMapAutoImport = new JourneyMapAutoImport(settings.autoImportJourneyMap, workerExecutor,
+				world::importJourneyMapWaypoints, target -> {
+					journeyMapStatus = I18n.format("Added to JourneyMap: {0} ({1})", target.waypoint().name(), target.dimension());
+					journeyMapStatusUntil = System.currentTimeMillis() + 6000;
+					AmidstLogger.info(journeyMapStatus);
+				}, failure -> {
+					journeyMapStatus = I18n.format("JourneyMap import failed: {0}", failure.getMessage());
+					journeyMapStatusUntil = System.currentTimeMillis() + 15000;
+					AmidstLogger.error(failure);
+				});
 		this.gtnhWorldStatePoller = new GtnhWorldStatePoller(
 				world::getGtnhWorldState, task -> workerExecutor.run(task::run));
 		this.cursorBiomeLookup = world.supportsGtnhWorldStateUpdates()
@@ -95,11 +118,12 @@ public class ViewerFacade {
 		Graphics2DAccelerationCounter accelerationCounter = new Graphics2DAccelerationCounter();
 		Movement movement = new Movement(settings.smoothScrolling);
 
-		this.worldIconSelection = new WorldIconSelection();
+		this.worldIconSelection = new WorldIconSelection(world::getSpawnWorldIcon);
 		this.layerManager = layerBuilder.create(settings, world, biomeSelection, worldIconSelection, zoom, accelerationCounter);
 		this.graph = new FragmentGraph(layerManager.getDeclarations(), fragmentManager);
 		this.translator = new FragmentGraphToScreenTranslator(graph, zoom);
         this.prospecting = new amidst.gtnh.prospecting.ProspectingOverlay(world, settings, translator, zoom);
+        this.prospecting.setOnDoubleClick(journeyMapAutoImport::add);
 		this.fragmentQueueProcessor = fragmentManager.createQueueProcessor(
 				layerManager, settings.dimension, world.supportsGtnhWorldStateUpdates());
 		this.layerReloader = layerManager.createLayerReloader(world);
@@ -114,6 +138,8 @@ public class ViewerFacade {
 				new ScaleWidget(Widget.CornerAnchorPoint.BOTTOM_CENTER, zoom, settings.showScale),
 				new SeedAndWorldTypeWidget(Widget.CornerAnchorPoint.TOP_LEFT, worldOptions.getWorldSeed(), worldOptions.getWorldType()),
 				new SelectedIconWidget(Widget.CornerAnchorPoint.TOP_LEFT, worldIconSelection),
+				new ChangeableTextWidget(Widget.CornerAnchorPoint.BOTTOM_CENTER,
+						() -> System.currentTimeMillis() < journeyMapStatusUntil ? journeyMapStatus : null) {{ increaseYMargin(40); }},
 				debugWidget,
 				new CursorInformationWidget(Widget.CornerAnchorPoint.TOP_RIGHT, graph, translator, settings.dimension, world.getBiomeList(), cursorBiomeLookup),
 				biomeToggleWidget,
@@ -154,6 +180,9 @@ public class ViewerFacade {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void dispose() {
+        saveView(); disposed=true; viewGeneration++;
+        if(viewSaveTimer!=null)viewSaveTimer.stop();
+        journeyMapAutoImport.close();
         prospecting.close();
 		gtnhWorldStatePoller.close();
 		if (cursorBiomeLookup != null) cursorBiomeLookup.close();
@@ -180,8 +209,7 @@ public class ViewerFacade {
 	}
 
 	private void pollGtnhWorldState() {
-		if (!world.supportsGtnhWorldStateUpdates()
-				|| dimensionSetting.get() != Dimension.OVERWORLD) {
+		if (!world.supportsGtnhWorldStateUpdates()) {
 			return;
 		}
 		GtnhWorldState state = gtnhWorldStatePoller.poll();
@@ -189,14 +217,60 @@ public class ViewerFacade {
 			return;
 		}
 		if (state.fullRefresh()) {
-            prospecting.refresh();
+            world.clearCachedPredictions();
+            for (int layer=0;layer<amidst.fragment.layer.LayerIds.NUMBER_OF_LAYERS;layer++) layerManager.invalidateLayer(layer);
+            javax.swing.SwingUtilities.invokeLater(() -> { if(!disposed){prospecting.refresh(); refreshViewIdentity();} });
 			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
 			fragmentQueueProcessor.requestBiomeReloadAllUsed();
-		} else if (state.chunkXs().length != 0) {
+		} else if (state.chunkXs().length != 0 && dimensionSetting.get()==Dimension.OVERWORLD) {
+            world.clearCachedPredictions();
+            for (int layer=amidst.fragment.layer.LayerIds.GTNH_ROGUELIKE_DESERT;
+                    layer<amidst.fragment.layer.LayerIds.GTNH_WORLD_SPAWN;layer++) layerManager.invalidateLayer(layer);
 			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
 			fragmentQueueProcessor.requestBiomeReloadForChunks(state.chunkXs(), state.chunkZs());
 		}
 	}
+
+    private amidst.gtnh.cache.MapViewState viewSnapshot() {
+        var center=translator.screenToWorld(new Point((int)translator.getWidth()/2,(int)translator.getHeight()/2));
+        return new amidst.gtnh.cache.MapViewState(1,center.getX(),center.getY(),zoom.getLevel(),dimensionSetting.get().name(),
+                settings.markerMode.get().name(),settings.prospectingFilter.get(),settings.prospectingMinimumFluid.get());
+    }
+    private void saveView() {
+        if(settings.rememberMap.get() && viewIdentity!=null && translator.getWidth()>0) viewSnapshot().save(viewsPath,viewIdentity);
+    }
+    public void startViewRecovery() {
+        viewSaveTimer=new javax.swing.Timer(5000,event->{if(viewIdentity==null)refreshViewIdentity();else saveView();});
+        viewSaveTimer.setInitialDelay(150);viewSaveTimer.start();
+    }
+    private void refreshViewIdentity() {
+        if(!world.supportsGtnhWorldStateUpdates() || disposed || translator.getWidth()<=0)return;
+        long generation=++viewGeneration;
+        var initial=viewSnapshot();
+        workerExecutor.run(() -> {
+            String identity=world.getMapCacheIdentity();
+            return new java.util.AbstractMap.SimpleEntry<>(identity,amidst.gtnh.cache.MapViewState.read(viewsPath,identity));
+        }, loaded -> {
+            if(disposed || generation!=viewGeneration || java.util.Objects.equals(viewIdentity,loaded.getKey()))return;
+            saveView();viewIdentity=loaded.getKey();
+            var saved=loaded.getValue();
+            if(saved!=null && settings.rememberMap.get() && initial.equals(viewSnapshot())) {
+                Dimension dimension=Dimension.valueOf(saved.dimension());
+                if(world.getBiomeDataOracle(dimension).isPresent() || hasProspecting(dimension)) {
+                    dimensionSetting.set(dimension);zoom.restoreLevel(saved.zoom());
+                    translator.centerOn(CoordinatesInWorld.from(saved.x(),saved.z()));
+                    settings.markerMode.set(amidst.gtnh.prospecting.MarkerMode.valueOf(saved.mode()));
+                    settings.prospectingFilter.set(saved.filter());settings.prospectingMinimumFluid.set(saved.minimumFluid());
+                }
+            }
+        }, failure->AmidstLogger.warn(failure,"Map view recovery unavailable"));
+    }
+    public void refreshMap() {
+        world.invalidateSpawn();
+        world.clearCachedPredictions();prospecting.refresh();
+        if(cursorBiomeLookup!=null)cursorBiomeLookup.invalidate();
+        for(int layer=0;layer<amidst.fragment.layer.LayerIds.NUMBER_OF_LAYERS;layer++)layerManager.invalidateLayer(layer);
+    }
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void centerOn(CoordinatesInWorld coordinates) {
@@ -227,6 +301,18 @@ public class ViewerFacade {
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void selectWorldIcon(WorldIcon worldIcon) {
 		worldIconSelection.select(worldIcon);
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public void importWorldIconToJourneyMap(WorldIcon icon) {
+		if (icon != null && settings.autoImportJourneyMap.get()) {
+			Dimension dimension = dimensionSetting.get();
+			var fragment = graph.getFragmentAt(icon.getCoordinates());
+			// Do not import stale icons while the map is switching dimensions.
+			if (fragment != null && fragment.hasDisplayData(dimension) && fragment.getDataDimension() == dimension) {
+				journeyMapAutoImport.add(GtnhMapWaypoint.structure(dimension, icon));
+			}
+		}
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

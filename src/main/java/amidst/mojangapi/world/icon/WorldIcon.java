@@ -13,6 +13,7 @@ public class WorldIcon {
 	private final WorldIconImage image;
 	private final Dimension dimension;
 	private final boolean displayDimension;
+	private final Integer height;
 
 	public WorldIcon(
 			CoordinatesInWorld coordinates,
@@ -20,12 +21,21 @@ public class WorldIcon {
 			WorldIconImage image,
 			Dimension dimension,
 			boolean displayDimension) {
+		this(coordinates, name, image, dimension, displayDimension, null);
+	}
+
+	public WorldIcon(CoordinatesInWorld coordinates, String name, WorldIconImage image,
+			Dimension dimension, boolean displayDimension, Integer height) {
 		this.coordinates = coordinates;
 		this.name = name;
 		this.image = image;
 		this.dimension = dimension;
 		this.displayDimension = displayDimension;
+		this.height = height;
 	}
+
+	/** Null when the predictor only supplies horizontal coordinates. */
+	public Integer getHeight() { return height; }
 
 	public CoordinatesInWorld getCoordinates() {
 		return coordinates;

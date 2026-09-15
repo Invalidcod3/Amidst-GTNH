@@ -168,7 +168,7 @@ public class WorkerTickHooksTest {
         try (Socket socket = new Socket("127.0.0.1", port)) {
             socket.setSoTimeout(3000);
             Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
-            writer.write("{\"protocol\":21,\"command\":\"world_state\"}\n");
+            writer.write("{\"protocol\":25,\"command\":\"world_state\"}\n");
             writer.flush();
             BufferedReader reader = new BufferedReader(
                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));

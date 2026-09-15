@@ -59,7 +59,7 @@ public class ViewerMouseListener implements MouseListener, MouseWheelListener {
 			// noop
 		} else if (!widgetManager.mouseClicked(mousePosition)) {
             if (prospecting != null && prospecting.click(e)) return;
-			doMouseClicked(mousePosition);
+			doMouseClicked(e);
 		}
 	}
 
@@ -115,9 +115,21 @@ public class ViewerMouseListener implements MouseListener, MouseWheelListener {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
-	private void doMouseClicked(Point mousePosition) {
-		actions.selectWorldIcon(
-				graph.getClosestWorldIcon(translator.screenToWorld(mousePosition), zoom.screenToWorld(50)));
+	private void doMouseClicked(MouseEvent event) {
+		var icon = graph.getClosestWorldIcon(translator.screenToWorld(event.getPoint()), zoom.screenToWorld(50));
+		actions.selectWorldIcon(icon);
+		if (event.getButton() == MouseEvent.BUTTON1 && event.getClickCount() == 2 && icon != null
+				&& isOnIcon(event.getPoint(), icon)) {
+			actions.importWorldIconToJourneyMap(icon);
+		}
+	}
+
+	private boolean isOnIcon(Point point, amidst.mojangapi.world.icon.WorldIcon icon) {
+		Point center = translator.worldToScreen(icon.getCoordinates().getX(), icon.getCoordinates().getY());
+		var image = icon.getImage().getImage();
+		// The first click selects and enlarges the icon to 150% of its normal size.
+		return Math.abs(point.x - center.x) <= image.getWidth() * .75
+				&& Math.abs(point.y - center.y) <= image.getHeight() * .75;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

@@ -44,6 +44,10 @@ public final class GtnhBiomeColorPalette {
 		if (barnardaCColor != null) {
 			return barnardaCColor;
 		}
+		BiomeColor plutoSurfaceColor = plutoSurfaceColor(name);
+		if (plutoSurfaceColor != null) {
+			return plutoSurfaceColor;
+		}
 		if (biome.hasTag("TWILIGHT_FOREST")) {
 			return color(biome.mapColor(), 0);
 		}
@@ -62,9 +66,6 @@ public final class GtnhBiomeColorPalette {
 			}
 			if ("io".equals(name)) {
 				return color(0xB39857, variation);
-			}
-			if (name.startsWith("pluto")) {
-				return color(0xA7B7C2, variation);
 			}
 			return color(0x737B83, variation);
 		}
@@ -124,6 +125,22 @@ public final class GtnhBiomeColorPalette {
 		float brightness = clamp(0.72f - Math.max(0.0f, biome.rootHeight()) * 0.06f, 0.56f, 0.78f);
 		int rgb = Color.HSBtoRGB(hue, saturation, brightness);
 		return color(rgb, variation);
+	}
+
+	/**
+	 * Mean RGB of GalaxySpace's default Pluto surface textures, rounded per channel.
+	 * BiomeGenPluto assigns PlutoBlocks topMeta 0/1/2/3 to these four biomes.
+	 * Do not vary by registry/display ID: the same surface must keep the same color.
+	 * Verified against GalaxySpace 1.1.99 and 1.1.121; see docs/reference/pluto-surface-colors.md.
+	 */
+	private static BiomeColor plutoSurfaceColor(String name) {
+		return switch (name) {
+			case "pluto" -> color(0xA57E61, 0);  // plutogrunt.png
+			case "pluto2" -> color(0xF9F0D6, 0); // plutogrunt2.png
+			case "pluto3" -> color(0xC3B9AF, 0); // plutogrunt3.png
+			case "pluto4" -> color(0x8C5235, 0); // plutogrunt4.png
+			default -> null;
+		};
 	}
 
 	private static BiomeColor barnardaCColor(String name) {

@@ -137,6 +137,15 @@ public class Actions {
 		}
 	}
 
+    public void openAccuracyValidationDialog() {
+        ViewerFacade viewer=mainWindow.getViewerFacade();
+        if(viewer!=null)new amidst.gui.export.AccuracyValidationDialog(viewer).show();
+    }
+    public void refreshMap() {
+        ViewerFacade viewer=mainWindow.getViewerFacade();
+        if(viewer!=null)viewer.refreshMap();
+    }
+
 	@CalledOnlyBy(AmidstThread.EDT)
 	public boolean canSwitchProfile() {
 		return application.canSwitchMinecraftProfile();
@@ -179,7 +188,9 @@ public class Actions {
 	public void goToSpawn() {
 		ViewerFacade viewerFacade = mainWindow.getViewerFacade();
 		if (viewerFacade != null) {
-			viewerFacade.centerOn(viewerFacade.getSpawnWorldIcon());
+            WorldIcon spawn = viewerFacade.getSpawnWorldIcon();
+            if (spawn == null) dialogs.displayInfo("World spawn", amidst.i18n.I18n.text("World spawn is not available yet. Wait for the preview or load the matching save."));
+            else viewerFacade.centerOn(spawn);
 		}
 	}
 
@@ -363,6 +374,12 @@ public class Actions {
 		if (viewerFacade != null) {
 			viewerFacade.selectWorldIcon(worldIcon);
 		}
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public void importWorldIconToJourneyMap(WorldIcon icon) {
+		ViewerFacade viewerFacade = mainWindow.getViewerFacade();
+		if (viewerFacade != null) viewerFacade.importWorldIconToJourneyMap(icon);
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)

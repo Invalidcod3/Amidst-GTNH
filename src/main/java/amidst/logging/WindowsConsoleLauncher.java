@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 /**
  * Windows associates executable JARs with javaw.exe, which has no console.
  * Relaunch only that case, using the same Java installation and JVM/app arguments.
- * Windows PowerShell opens a native console and holds it after Java exits.
+ * Windows PowerShell opens a native console that closes when Java exits.
  * No file associations, global settings or external libraries are needed.
  */
 public final class WindowsConsoleLauncher {
@@ -54,21 +54,12 @@ public final class WindowsConsoleLauncher {
 		javaArguments.add("-jar");
 		javaArguments.add(jar.toString());
 		javaArguments.addAll(List.of(args));
-		String consoleScript = "$ErrorActionPreference = 'Stop'\n"
-				+ "$Host.UI.RawUI.WindowTitle = 'GTNH SeedViewer'\n"
-				+ "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n"
-				+ "try {\n"
-				+ processStartInfoScript(java, javaArguments, Path.of(System.getProperty("user.dir")))
-				+ "$process = [System.Diagnostics.Process]::Start($info)\n"
-				+ "$process.WaitForExit()\n"
-				+ "Write-Host ('Viewer exited with code ' + $process.ExitCode)\n"
-				+ "} catch { Write-Host $_ -ForegroundColor Red }\n"
-				+ "Write-Host 'You can close this console window when done.'\n";
+		String consoleScript = consoleScript(java, javaArguments, Path.of(System.getProperty("user.dir")));
 		// Only an encoded script crosses the bootstrap command line. User paths,
 		// JVM options and tokens are never interpolated into cmd.exe commands.
 		String bootstrap = "$ErrorActionPreference = 'Stop'\nStart-Process -FilePath "
 				+ powershellLiteral(powershell.toString()) + " -WindowStyle Normal -ArgumentList "
-				+ powershellLiteral("-NoLogo -NoProfile -NoExit -EncodedCommand " + encodeScript(consoleScript)) + "\n";
+				+ powershellLiteral("-NoLogo -NoProfile -EncodedCommand " + encodeScript(consoleScript)) + "\n";
 		Process process = new ProcessBuilder(powershell.toString(), "-NoLogo", "-NoProfile", "-NonInteractive",
 				"-EncodedCommand", encodeScript(bootstrap)).redirectErrorStream(true)
 				.redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
@@ -88,6 +79,18 @@ public final class WindowsConsoleLauncher {
 			throw new IOException("Interrupted while opening the Windows console", e);
 		}
 		return true;
+	}
+
+	static String consoleScript(Path java, List<String> arguments, Path workingDirectory) {
+		return "$ErrorActionPreference = 'Stop'\n"
+				+ "$Host.UI.RawUI.WindowTitle = 'GTNH SeedViewer'\n"
+				+ "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)\n"
+				+ "try {\n"
+				+ processStartInfoScript(java, arguments, workingDirectory)
+				+ "$process = [System.Diagnostics.Process]::Start($info)\n"
+				+ "$process.WaitForExit()\n"
+				+ "exit $process.ExitCode\n"
+				+ "} catch { Write-Host $_ -ForegroundColor Red; exit 1 }\n";
 	}
 
 	static Path powershellExecutable() {

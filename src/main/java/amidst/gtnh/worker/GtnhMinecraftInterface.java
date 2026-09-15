@@ -45,6 +45,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 					Dimension.TWILIGHT_FOREST));
 
 	private final GtnhBiomeSource source;
+	private final Set<Dimension> supportedDimensions;
     private final java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
 	private final GtnhWorkerInfo workerInfo;
 	private final BiomeList biomeList;
@@ -71,7 +72,13 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 			throws MinecraftInterfaceException {
 		this.source = source;
 		this.workerInfo = source.getWorkerInfo();
-        this.prospectingDimensions = source.prospectingCatalog();
+        this.prospectingDimensions = List.copyOf(source.prospectingCatalog());
+        EnumSet<Dimension> supported = EnumSet.copyOf(SUPPORTED_DIMENSIONS);
+        for (Dimension dimension : Dimension.values()) {
+            if (prospectingDimensions.stream().anyMatch(info -> info.biomes
+                    && dimension.prospectingKey().equals(info.key))) supported.add(dimension);
+        }
+        this.supportedDimensions = Collections.unmodifiableSet(supported);
 		if (!"RWG".equalsIgnoreCase(workerInfo.worldType())) {
 			throw new MinecraftInterfaceException(
 					"GTNH biome worker world type is "
@@ -102,6 +109,10 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		return biomeList;
 	}
 
+    public amidst.gtnh.validation.AccuracyReport validate(long seed,Dimension dimension,int x,int z,int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
+        return source.validate(seed,toWorkerDimensionId(dimension),dimension.getName(),x,z,width,height,step,category,session);
+    }
+    public String cacheIdentity(long seed) throws MinecraftInterfaceException { return source.cacheIdentity(seed); }
 	public GtnhWorkerInfo getWorkerInfo() {
 		return workerInfo;
 	}
@@ -130,6 +141,10 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 	public CoordinatesInWorld getWorldSpawn(long seed) throws MinecraftInterfaceException {
 		return source.sampleSpawn(seed, Dimension.OVERWORLD.getId());
 	}
+
+    public GtnhSpawnPoint getWorldSpawnPoint(long seed) throws MinecraftInterfaceException {
+        return source.sampleSpawnPoint(seed, Dimension.OVERWORLD.getId());
+    }
 
 	public List<GtnhStructureDescriptor> sampleStructures(
 			long seed,
@@ -167,7 +182,12 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 	public int importJourneyMapWaypoints(
 			Dimension dimension,
 			List<GtnhWaypoint> waypoints) throws MinecraftInterfaceException {
-		return source.importJourneyMapWaypoints(toWorkerDimensionId(dimension), waypoints);
+		int dimensionId = toWorkerDimensionId(dimension);
+		if (dimension.isAdditional() && prospectingDimensions.stream()
+				.noneMatch(info -> dimension.prospectingKey().equals(info.key))) {
+			throw new MinecraftInterfaceException("The worker did not provide the game dimension ID for " + dimension);
+		}
+		return source.importJourneyMapWaypoints(dimensionId, waypoints);
 	}
 
 	public int toWorkerDimensionId(Dimension dimension) {
@@ -208,7 +228,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 				int height,
 				boolean useQuarterResolution,
 				Function<int[], T> biomeDataMapper) throws MinecraftInterfaceException {
-			if (!SUPPORTED_DIMENSIONS.contains(dimension)) {
+			if (!supportedDimensions.contains(dimension)) {
 				throw new UnsupportedDimensionException(dimension);
 			}
 			int step = useQuarterResolution ? 4 : 1;
@@ -242,7 +262,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 
 		@Override
 		public Set<Dimension> supportedDimensions() {
-			return SUPPORTED_DIMENSIONS;
+			return supportedDimensions;
 		}
 	}
 }

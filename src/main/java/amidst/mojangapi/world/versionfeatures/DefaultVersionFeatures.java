@@ -752,21 +752,9 @@ public enum DefaultVersionFeatures {
 			VersionFeatures features) {
 		MinecraftInterface.WorldAccessor worldAccessor = features.get(WORLD_ACCESSOR);
 		Map<Dimension, Optional<BiomeDataOracle>> result = new EnumMap<>(Dimension.class);
-		for (Dimension dimension : new Dimension[] {
-				Dimension.MARS,
-				Dimension.ASTEROIDS,
-				Dimension.CERES,
-				Dimension.IO,
-				Dimension.ENCELADUS,
-				Dimension.PROTEUS,
-				Dimension.PLUTO,
-				Dimension.MEHEN_BELT,
-				Dimension.ROSS_128B,
-				Dimension.BARNARDA_C,
-				Dimension.DEEP_DARK,
-				Dimension.ANUBIS,
-				Dimension.HORUS
-		}) {
+		for (Dimension dimension : Dimension.values()) {
+            if (dimension == Dimension.OVERWORLD || dimension == Dimension.NETHER || dimension == Dimension.END
+                    || dimension == Dimension.MOON || dimension == Dimension.TWILIGHT_FOREST) continue;
 			result.put(
 					dimension,
 					worldAccessor.supportedDimensions().contains(dimension)

@@ -38,10 +38,13 @@ public final class ProspectingExport {
         }
         return new Result(List.copyOf(found.values()),false);
     }
-    static List<GtnhCoordinate> points(Deposit d, Options options, int minX, int minZ, int maxX, int maxZ) {
+    public static List<GtnhCoordinate> points(Deposit d, Options options, int minX, int minZ, int maxX, int maxZ) {
         List<GtnhCoordinate> result = new ArrayList<>();
         if (d.amounts == null) {
-            if (inside(d.x,d.z,minX,minZ,maxX,maxZ)) result.add(new GtnhCoordinate(d.x,d.z,d.name + " [" + d.source + "] Y=" + d.minY + "–" + d.maxY));
+            if (inside(d.x,d.z,minX,minZ,maxX,maxZ)) result.add(new GtnhCoordinate(d.x,d.z,
+                    d.name + " [" + d.source + (d.kind == null ? "" : ", " + amidst.i18n.I18n.text(
+                            "ASTEROID_SMALL".equals(d.kind) ? "Small-ore asteroid" : "Ore-mix asteroid")) + "] Y="
+                            + (d.y == null ? d.minY + "–" + d.maxY : d.y), d.y));
             return result;
         }
         int bestAmount = -1; GtnhCoordinate best = null;

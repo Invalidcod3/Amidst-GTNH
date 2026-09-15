@@ -24,6 +24,45 @@ import com.google.gson.JsonParser;
 
 /** Real TCP requests with an explicitly driven game-tick queue; no world boot required. */
 public class BiomeWorkerServerTest {
+    @Test(timeout=6000) public void allSocketWorkersRemainAvailableDuringColdCachePreparation() throws Exception {
+        int port=freeIpv4Port();ExecutorService clients=Executors.newFixedThreadPool(4);
+        java.util.ArrayDeque<Runnable> preparationTasks=new java.util.ArrayDeque<>();
+        MapCachePreparation preparation=new MapCachePreparation(()->"test-environment",preparationTasks::add,()->1L,failure->{throw new AssertionError(failure);});
+        try(BiomeWorkerServer worker=new BiomeWorkerServer(port,"",new MapCacheIdentity(preparation))) {
+            java.lang.reflect.Field field=BiomeWorkerServer.class.getDeclaredField("arbitrarySeedSamplers");field.setAccessible(true);
+            ((java.util.Map<Long,SurfaceBiomeSampler>)field.get(worker)).put(7L,new SurfaceBiomeSampler() {
+                @Override public net.minecraft.world.biome.BiomeGenBase getBiomeAt(int x,int z){return net.minecraft.world.biome.BiomeGenBase.forest;}
+                @Override public boolean isVillageLocationViable(int x,int z){throw new AssertionError();}
+                @Override public float getApproximateSurfaceHeight(int x,int z){throw new AssertionError();}
+                @Override public net.minecraft.world.ChunkPosition findSpawnBiomePosition(java.util.Random random){throw new AssertionError();}
+            });
+            assertTrue(worker.start());
+            java.util.List<Future<JsonObject>> metadata=new java.util.ArrayList<>();
+            for(int i=0;i<4;i++)metadata.add(clients.submit(()->exchange(port,
+                    "{\"protocol\":25,\"command\":\"cache_context\",\"seed\":7,\"width\":1,\"height\":1,\"step\":1}")));
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);
+            while(metadata.stream().anyMatch(f->!f.isDone()) && System.nanoTime()<deadline){worker.executeQueuedQueries();Thread.sleep(5);}
+            for(Future<JsonObject> pending:metadata) {
+                JsonObject response=pending.get(1,TimeUnit.SECONDS);
+                assertTrue(response.toString(),response.get("ok").getAsBoolean());assertFalse(response.has("cacheStamp"));
+            }
+            assertEquals(1,preparationTasks.size()); // Still pending: nothing waited for disk I/O.
+            Future<JsonObject> tile=clients.submit(()->exchange(port,
+                    "{\"protocol\":25,\"command\":\"biomes\",\"seed\":7,\"width\":1,\"height\":1,\"step\":1}"));
+            while(!tile.isDone() && System.nanoTime()<deadline){worker.executeQueuedQueries();Thread.sleep(5);}
+            JsonObject result=tile.get(1,TimeUnit.SECONDS);
+            assertTrue(result.toString(),result.get("ok").getAsBoolean());assertEquals(4,result.getAsJsonArray("ids").get(0).getAsInt());
+            preparationTasks.remove().run();assertEquals("test-environment",preparation.getIfReady());
+        }finally{clients.shutdownNow();}
+    }
+
+    private static void driveBusyTick(BiomeWorkerServer worker) throws Exception {
+        java.lang.reflect.Field field=BiomeWorkerServer.class.getDeclaredField("tickBudget");field.setAccessible(true);
+        // One millisecond allowance makes the fairness assertion independent of
+        // a socket response racing the rest of a 20 ms batch on Windows.
+        ((WorkerTickBudget)field.get(worker)).begin(System.nanoTime()-50_000_000L);
+        worker.executeQueuedQueries();
+    }
     @Test public void largeBiomeQueryYieldsToTicksAndOtherClients() throws Exception {
         int port = freeIpv4Port();
         ExecutorService clients = Executors.newFixedThreadPool(2);
@@ -33,7 +72,6 @@ public class BiomeWorkerServerTest {
             @Override public boolean isVillageLocationViable(int x, int z) { throw new AssertionError(); }
             @Override public float getApproximateSurfaceHeight(int x, int z) { throw new AssertionError(); }
             @Override public net.minecraft.world.ChunkPosition findSpawnBiomePosition(java.util.Random random) { throw new AssertionError(); }
-            @Override public boolean isLikelySpawnCoordinate(int x, int z) { throw new AssertionError(); }
             @Override public net.minecraft.world.biome.BiomeGenBase getPredictedBiomeAt(int x, int z) {
                 samples.incrementAndGet();
                 long until = System.nanoTime() + 300_000;
@@ -47,22 +85,22 @@ public class BiomeWorkerServerTest {
             ((java.util.Map<Long, SurfaceBiomeSampler>) cacheField.get(worker)).put(7L, sampler);
             assertTrue(worker.start());
             Future<JsonObject> tile = clients.submit(() -> exchange(port,
-                    "{\"protocol\":21,\"command\":\"biomes\",\"seed\":7,\"dimension\":0,\"x\":0,\"z\":0,\"width\":16,\"height\":8,\"step\":4,\"profile\":true}"));
+                    "{\"protocol\":25,\"command\":\"biomes\",\"seed\":7,\"dimension\":0,\"x\":0,\"z\":0,\"width\":16,\"height\":8,\"step\":4,\"profile\":true}"));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
             while (samples.get() == 0 && System.nanoTime() < deadline) {
-                worker.executeQueuedQueries(); Thread.sleep(5);
+                driveBusyTick(worker); Thread.sleep(5);
             }
             assertTrue(samples.get() > 0 && samples.get() < 128);
             assertFalse(tile.isDone());
             Future<JsonObject> state = clients.submit(() -> exchange(port,
-                    "{\"protocol\":21,\"command\":\"world_state\"}"));
+                    "{\"protocol\":25,\"command\":\"world_state\"}"));
             while (!state.isDone() && System.nanoTime() < deadline) {
-                worker.executeQueuedQueries(); Thread.sleep(5);
+                driveBusyTick(worker); Thread.sleep(5);
             }
             assertTrue(state.get(1, TimeUnit.SECONDS).get("ok").getAsBoolean());
             assertFalse("A short request must pass a yielded tile", tile.isDone());
             while (!tile.isDone() && System.nanoTime() < deadline) {
-                worker.executeQueuedQueries(); Thread.sleep(5);
+                driveBusyTick(worker); Thread.sleep(5);
             }
             JsonObject result = tile.get(1, TimeUnit.SECONDS);
             assertTrue(result.toString(), result.get("ok").getAsBoolean());
@@ -80,7 +118,7 @@ public class BiomeWorkerServerTest {
             assertTrue(worker.start());
             for (boolean profile : new boolean[] { true, false }) {
                 Future<JsonObject> response = client.submit(() -> exchange(port,
-                        "{\"protocol\":21,\"command\":\"world_state\",\"profile\":" + profile + "}"));
+                        "{\"protocol\":25,\"command\":\"world_state\",\"profile\":" + profile + "}"));
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
                 while (!response.isDone() && System.nanoTime() < deadline) {
                     worker.executeQueuedQueries();
@@ -108,7 +146,7 @@ public class BiomeWorkerServerTest {
             assertTrue(worker.start());
             worker.recordOverworldChunkChange(3, -4);
             Future<JsonObject> response = client.submit(() -> exchange(port,
-                    "{\"protocol\":21,\"command\":\"world_state\",\"token\":\"test-token\",\"sinceRevision\":0}"));
+                    "{\"protocol\":25,\"command\":\"world_state\",\"token\":\"test-token\",\"sinceRevision\":0}"));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
             while (!response.isDone() && System.nanoTime() < deadline) {
                 worker.executeQueuedQueries();
@@ -116,7 +154,7 @@ public class BiomeWorkerServerTest {
             }
             JsonObject result = response.get(1, TimeUnit.SECONDS);
             assertTrue(result.get("ok").getAsBoolean());
-            assertEquals(21, result.get("protocol").getAsInt());
+            assertEquals(25, result.get("protocol").getAsInt());
             assertEquals(1, result.get("worldRevision").getAsLong());
             assertEquals(3, result.getAsJsonArray("chunkXs").get(0).getAsInt());
             assertEquals(-4, result.getAsJsonArray("chunkZs").get(0).getAsInt());
@@ -141,7 +179,7 @@ public class BiomeWorkerServerTest {
         int port = freeIpv4Port();
         try (BiomeWorkerServer worker = new BiomeWorkerServer(port, "expected")) {
             assertTrue(worker.start());
-            JsonObject result = exchange(port, "{\"protocol\":21,\"command\":\"hello\",\"token\":\"wrong\"}");
+            JsonObject result = exchange(port, "{\"protocol\":25,\"command\":\"hello\",\"token\":\"wrong\"}");
             assertFalse(result.get("ok").getAsBoolean());
             assertEquals("authentication failed", result.get("error").getAsString());
         }
@@ -162,7 +200,7 @@ public class BiomeWorkerServerTest {
         try (BiomeWorkerServer worker = new BiomeWorkerServer(port, "")) {
             assertTrue(worker.start());
             Future<JsonObject> response = client.submit(() -> exchange(port,
-                    "{\"protocol\":21,\"command\":\"compare_biomes\",\"dimension\":0,\"width\":1,\"height\":1,\"step\":1}"));
+                    "{\"protocol\":25,\"command\":\"compare_biomes\",\"dimension\":0,\"width\":1,\"height\":1,\"step\":1}"));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
             while (!response.isDone() && System.nanoTime() < deadline) {
                 worker.executeQueuedQueries();

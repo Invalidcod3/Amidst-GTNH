@@ -12,7 +12,7 @@ import net.minecraft.world.biome.BiomeGenBase;
 
 /**
  * Biome-array writes in RWG alpha 1.5.2's surface painters, AFTER river assignment.
- * This is not a block generator. See docs/gtnh-biome-accuracy.md for the upstream
+ * This is not a block generator. See docs/archive/gtnh-biome-accuracy.md for the upstream
  * call chain and limits (generation events and later biome edits are not replayed).
  */
 final class RwgSurfaceBiomeOverrides {

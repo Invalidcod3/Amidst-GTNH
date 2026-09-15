@@ -22,6 +22,30 @@ public class WindowsConsoleLauncherTest {
 	public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
 	@Test
+	public void consoleExitsWithViewerWithoutWaitingForInput() throws Exception {
+		assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+		for (int exitCode : new int[] { 0, 7 }) {
+			String script = WindowsConsoleLauncher.consoleScript(
+					Path.of(System.getProperty("java.home"), "bin", "java.exe"),
+					List.of("-cp", Path.of(ExitProbe.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString(),
+							ExitProbe.class.getName(), Integer.toString(exitCode)), temporaryFolder.getRoot().toPath());
+			Process process = new ProcessBuilder(WindowsConsoleLauncher.powershellExecutable().toString(),
+					"-NoProfile", "-NonInteractive", "-EncodedCommand", WindowsConsoleLauncher.encodeScript(script))
+					.redirectErrorStream(true).start();
+			try {
+				assertTrue("Console did not exit with Viewer", process.waitFor(15, TimeUnit.SECONDS));
+				assertEquals(new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8), exitCode, process.exitValue());
+			} finally {
+				process.destroyForcibly();
+			}
+		}
+	}
+
+	public static class ExitProbe {
+		public static void main(String[] args) { System.exit(Integer.parseInt(args[0])); }
+	}
+
+	@Test
 	public void nativeJavaReceivesExactArgumentsThroughPowerShell() throws Exception {
 		assumeTrue(System.getProperty("os.name").startsWith("Windows"));
 		Path directory = temporaryFolder.newFolder("目录 with spaces & ' $").toPath();

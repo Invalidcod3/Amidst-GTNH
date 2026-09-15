@@ -31,6 +31,154 @@ import amidst.logging.AmidstLogger;
 import amidst.threading.TaskCancellation;
 
 public class GtnhBiomeWorkerClientTest {
+    @Test(timeout=5000) public void spawnProtocolPreservesSavedHeightAndDoesNotInventMissingOrigin() throws Exception {
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try (ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000,20,()->{});
+            String[] responses={
+                "{\"ok\":true,\"protocol\":25,\"spawnX\":-1710,\"spawnY\":79,\"spawnZ\":850,\"spawnSource\":\"RECORDED\"}",
+                "{\"ok\":true,\"protocol\":25,\"spawnX\":1200,\"spawnZ\":-800,\"spawnSource\":\"ESTIMATED\"}",
+                "{\"ok\":true,\"protocol\":25,\"spawnSource\":\"UNAVAILABLE\"}",
+                "{\"ok\":true,\"protocol\":25,\"spawnSource\":\"RECORDED\"}"
+            };
+            for (int i=0;i<responses.length;i++) {
+                var query=executor.submit(()->client.sampleSpawnPoint(71,0));
+                try (Socket socket=server.accept()) {
+                    var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
+                    assertEquals("spawn",request.get("command").getAsString()); assertEquals(71,request.get("seed").getAsLong());
+                    assertEquals(0,request.get("dimension").getAsInt());
+                    socket.getOutputStream().write((responses[i]+"\n").getBytes(StandardCharsets.UTF_8));
+                }
+                if (i==0) assertEquals(new GtnhSpawnPoint(-1710,79,850,"RECORDED"),query.get(1,TimeUnit.SECONDS));
+                else if(i==1) assertEquals(new GtnhSpawnPoint(1200,null,-800,"ESTIMATED"),query.get(1,TimeUnit.SECONDS));
+                else if(i==2) assertEquals(null,query.get(1,TimeUnit.SECONDS));
+                else assertTrue(assertThrows(ExecutionException.class,()->query.get(1,TimeUnit.SECONDS)).getCause() instanceof MinecraftInterfaceException);
+            }
+        } finally { executor.shutdownNow(); }
+    }
+    @Test(timeout=5000) public void asteroidCenterHeightSurvivesStructureProtocol() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
+            var query = executor.submit(() -> client.sampleStructureGroup(42, 1, null, -512, 0, 512, 512, null));
+            try (Socket socket = server.accept()) {
+                var request = com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(
+                        socket.getInputStream(), StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
+                assertEquals(1, request.get("dimension").getAsInt());
+                socket.getOutputStream().write(("{\"ok\":true,\"protocol\":25,\"structures\":["
+                        + "{\"kind\":\"END_PLATINUM_ASTEROID\",\"subtype\":\"\",\"x\":-258,\"z\":364,\"y\":167,\"certainty\":\"EXACT_SEED\"},"
+                        + "{\"kind\":\"HEE_DUNGEON_TOWER\",\"x\":-128,\"z\":128,\"certainty\":\"POSSIBLE\"}]}\n")
+                        .getBytes(StandardCharsets.UTF_8));
+            }
+            var structures = query.get(2, TimeUnit.SECONDS);
+            assertEquals(Integer.valueOf(167), structures.get(0).y());
+            assertEquals(-258, structures.get(0).x());
+            assertEquals(364, structures.get(0).z());
+            assertEquals(null, structures.get(1).y());
+        } finally { executor.shutdownNow(); }
+    }
+    @Test(timeout=7000) public void coldCacheTimeoutStillLoadsTilesAndBacksOffCacheRequests() throws Exception {
+        boolean enabled=amidst.gtnh.cache.MapStorage.enabled;amidst.gtnh.cache.MapStorage.enabled=true;
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try(ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(3000);
+            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",3000);
+            Future<int[]> first=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
+            try(Socket slow=server.accept()) {
+                String request=new BufferedReader(new InputStreamReader(slow.getInputStream(),StandardCharsets.UTF_8)).readLine();
+                assertEquals("cache_context",com.google.gson.JsonParser.parseString(request).getAsJsonObject().get("command").getAsString());
+                // Do not reply: optional cache metadata times out before the real query.
+                int[] ids=new int[64];java.util.Arrays.fill(ids,4);
+                String response=new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"ids",ids));
+                respond(server,"biomes",response);
+                assertArrayEquals(ids,first.get(1,TimeUnit.SECONDS));
+                Future<int[]> second=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
+                respond(server,"biomes",response); // No second cache wait during backoff.
+                assertArrayEquals(ids,second.get(1,TimeUnit.SECONDS));
+            }
+        }finally{executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=enabled;}
+    }
+
+    @Test(timeout=5000) public void cacheRejectionAndNotReadyBothFallBackToBiomeQuery() throws Exception {
+        boolean enabled=amidst.gtnh.cache.MapStorage.enabled;amidst.gtnh.cache.MapStorage.enabled=true;
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try(ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            for(String metadata:new String[]{"{\"ok\":true,\"protocol\":25}","{\"ok\":false,\"protocol\":25,\"error\":\"cache initializing\"}"}) {
+                var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
+                Future<int[]> query=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
+                respond(server,"cache_context",metadata);
+                int[] ids=new int[64];java.util.Arrays.fill(ids,6);
+                respond(server,"biomes",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"ids",ids)));
+                assertArrayEquals(ids,query.get(1,TimeUnit.SECONDS));
+            }
+        }finally{executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=enabled;}
+    }
+    @org.junit.Rule public org.junit.rules.TemporaryFolder cacheFolder=new org.junit.rules.TemporaryFolder();
+    @Test(timeout=7000) public void diskCacheIsReusedOnlyAfterFreshWorkerStamp() throws Exception {
+        String previous=System.getProperty("amidst.cacheDir");
+        boolean wasEnabled=amidst.gtnh.cache.MapStorage.enabled;
+        System.setProperty("amidst.cacheDir",cacheFolder.getRoot().toString());amidst.gtnh.cache.MapStorage.enabled=true;
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try(ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(2000);var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
+            for(int run=0;run<3;run++) {
+                Future<int[]> query=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
+                String stamp=run<2?"save-A:loaded-biomes-1":"save-A:loaded-biomes-2";
+                respond(server,"cache_context",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"cacheStamp",stamp)));
+                if(run!=1) {
+                    int[] ids=new int[64];java.util.Arrays.fill(ids,run==0?4:6);
+                    respond(server,"biomes",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"cacheStamp",stamp,"ids",ids)));
+                }
+                int[] result=query.get(2,TimeUnit.SECONDS);assertEquals(64,result.length);assertEquals(run<2?4:6,result[0]);
+            }
+        }finally {
+            executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=wasEnabled;
+            if(previous==null)System.clearProperty("amidst.cacheDir");else System.setProperty("amidst.cacheDir",previous);
+        }
+    }
+    private static void respond(ServerSocket server,String command,String response) throws Exception {
+        try(Socket socket=server.accept()) {
+            var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
+            assertEquals(command,request.get("command").getAsString());
+            assertEquals(73,request.get("dimension").getAsInt());assertEquals(-64,request.get("x").getAsInt());
+            socket.getOutputStream().write((response+"\n").getBytes(StandardCharsets.UTF_8));
+        }
+    }
+    @Test(timeout=5000) public void sameRevisionInAnotherSaveForcesRefresh() throws Exception {
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try(ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
+            int index=0;
+            for(String session:new String[]{"save-A","save-A","save-B"}) {
+                Future<GtnhWorldState> query=executor.submit(()->client.getWorldState(9));
+                try(Socket socket=server.accept()) {
+                    new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine();
+                    socket.getOutputStream().write(("{\"ok\":true,\"protocol\":25,\"worldRevision\":9,\"worldSession\":\""+session+"\",\"chunkXs\":[],\"chunkZs\":[]}\n").getBytes(StandardCharsets.UTF_8));
+                }
+                GtnhWorldState state=query.get(2,TimeUnit.SECONDS);
+                assertEquals(index!=1,state.fullRefresh());index++;
+            }
+        }finally{executor.shutdownNow();}
+    }
+    @Test(timeout=5000) public void validationCarriesDimensionAndSaveSession() throws Exception {
+        ExecutorService executor=Executors.newSingleThreadExecutor();
+        try(ServerSocket server=new ServerSocket(0)) {
+            server.setSoTimeout(2000);var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
+            Future<amidst.gtnh.validation.AccuracyReport> query=executor.submit(()->client.validate(71,73,"Everglades",-99,80,128,128,4,"ORES","session-A"));
+            try(Socket socket=server.accept()) {
+                var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
+                assertEquals("validate",request.get("command").getAsString());assertEquals(73,request.get("dimension").getAsInt());
+                assertEquals("Everglades",request.get("dimensionKey").getAsString());assertEquals(-99,request.get("x").getAsInt());
+                assertEquals("session-A",request.get("expectedSession").getAsString());
+                socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"accuracy\":{\"seed\":71,\"dimension\":73,\"category\":\"ORES\",\"worldSession\":\"session-A\",\"matched\":2,\"mismatched\":1,\"unverified\":8,\"details\":[]}}\n".getBytes(StandardCharsets.UTF_8));
+            }
+            var result=query.get(2,TimeUnit.SECONDS);assertEquals(2,result.matched);assertEquals(8,result.unverified);
+        }finally{executor.shutdownNow();}
+    }
     @Test(timeout = 5000)
     public void structureGroupsAreSentWithoutChangingLegacyRequests() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -46,7 +194,7 @@ public class GtnhBiomeWorkerClientTest {
                     assertEquals("structures", request.get("command").getAsString());
                     if (group == null) assertTrue(!request.has("structureGroup") || request.get("structureGroup").isJsonNull());
                     else assertEquals(group, request.get("structureGroup").getAsString());
-                    socket.getOutputStream().write("{\"ok\":true,\"protocol\":21,\"structures\":[]}\n".getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"structures\":[]}\n".getBytes(StandardCharsets.UTF_8));
                     socket.getOutputStream().flush();
                 }
                 assertEquals(java.util.List.of(), query.get(2, TimeUnit.SECONDS));
@@ -74,7 +222,7 @@ public class GtnhBiomeWorkerClientTest {
 				BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 				assertTrue(reader.readLine().contains("\"command\":\"biomes\""));
 				cancelled.set(true); // Pan after the game has already started this query.
-				socket.getOutputStream().write("{\"ok\":true,\"protocol\":21,\"ids\":[40]}\n".getBytes(StandardCharsets.UTF_8));
+				socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"ids\":[40]}\n".getBytes(StandardCharsets.UTF_8));
 				socket.getOutputStream().flush();
 			}
 			ExecutionException failure = assertThrows(ExecutionException.class, () -> query.get(2, TimeUnit.SECONDS));
@@ -147,7 +295,7 @@ public class GtnhBiomeWorkerClientTest {
 						BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
 						BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
 					assertTrue(reader.readLine().contains("\"profile\":true"));
-					writer.write("{\"ok\":true,\"protocol\":21,\"worldRevision\":1,\"queueMillis\":12.5,\"computeMillis\":3.25}\n");
+					writer.write("{\"ok\":true,\"protocol\":25,\"worldRevision\":1,\"queueMillis\":12.5,\"computeMillis\":3.25}\n");
 					writer.flush();
 				} catch (Exception e) { throw new RuntimeException(e); }
 			});

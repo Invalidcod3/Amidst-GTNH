@@ -80,7 +80,6 @@ public class CursorInformationWidget extends TextWidget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private String getBiomeNameAt(CoordinatesInWorld coordinates) {
 		Dimension dimension = dimensionSetting.get();
-        if (dimension.isProspectingOnly()) return amidst.i18n.I18n.text("Prospecting");
 		if (!dimension.equals(Dimension.END)) {
 			return getLoadedBiomeNameAt(coordinates);
 		} else if (dimension.equals(Dimension.END)) {

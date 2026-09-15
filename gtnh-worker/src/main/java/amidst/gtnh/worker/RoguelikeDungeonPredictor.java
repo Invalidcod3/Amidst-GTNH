@@ -330,13 +330,19 @@ final class RoguelikeDungeonPredictor {
         final int x;
         final int z;
         final String certainty;
+        final Integer y;
 
         StructureDescriptor(String kind, String subtype, int x, int z, String certainty) {
+            this(kind, subtype, x, z, certainty, null);
+        }
+
+        StructureDescriptor(String kind, String subtype, int x, int z, String certainty, Integer y) {
             this.kind = kind;
             this.subtype = subtype;
             this.x = x;
             this.z = z;
             this.certainty = certainty;
+            this.y = y;
         }
     }
 

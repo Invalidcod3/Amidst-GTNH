@@ -1,23 +1,23 @@
 package amidst.gtnh.worker;
 
-import java.lang.reflect.Method;
-import java.util.Random;
-
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 
+import java.lang.reflect.Method;
+import java.util.Random;
+
 /**
- * Replays RWG's pre-cave, pre-population chunk stages on disposable arrays.
- * Every registered realistic biome receives its real generateMapGen/rReplace
- * calls. There are no biome names, surface-class rules or assumed registry ids.
+ * Replays RWG's pre-cave, pre-population chunk stages on disposable arrays. Every registered
+ * realistic biome receives its real generateMapGen/rReplace calls. There are no biome names,
+ * surface-class rules or assumed registry ids.
  *
- * The caller owns the exact blended heights and caches only the resulting 256
- * biome references. Scratch blocks are reused, never installed in a world.
- * Forge ReplaceBiomeBlocks events and population are deliberately not dispatched:
- * third-party listeners may have save/world side effects. This is a prediction,
- * not a claim to reproduce arbitrary post-generation modifications.
+ * <p>The caller owns the exact blended heights and caches the resulting 256 biome references. Spawn
+ * queries additionally carve caves and retain compact surface summaries. Scratch blocks are reused,
+ * never installed in a world. Forge ReplaceBiomeBlocks events and population are deliberately not
+ * dispatched: third-party listeners may have save/world side effects. This is a prediction, not a
+ * claim to reproduce arbitrary post-generation modifications.
  */
 final class RwgChunkBiomeReplay {
     private final World previewWorld;
@@ -37,8 +37,54 @@ final class RwgChunkBiomeReplay {
     private final Random random = new Random();
     private final Random mapRandom = new Random();
 
-    RwgChunkBiomeReplay(World previewWorld, long seed, Object manager, Object perlin, Object cell,
-            Class<?> biomeType, Class<?> managerType, Class<?> noiseType, Class<?> cellType)
+    SpawnSearch.Surface[] spawnSurfaces(
+            int chunkX,
+            int chunkZ,
+            BiomeGenBase[] biomes,
+            java.util.List<?> spawnBiomes,
+            RwgSpawnCaves caves) {
+        // Called only immediately after replay(): scratch arrays belong to that chunk.
+        // Surface replacement must run first so cave water checks and top/filler restoration
+        // receive real terrain, rather than a solid-stone approximation.
+        caves.carve(chunkX, chunkZ, blocks);
+        return spawnSurfaces(biomes, spawnBiomes);
+    }
+
+    private SpawnSearch.Surface[] spawnSurfaces(
+            BiomeGenBase[] biomes, java.util.List<?> spawnBiomes) {
+        SpawnSearch.Surface[] result = new SpawnSearch.Surface[256];
+        for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+                int offset = (x * 16 + z) * 256;
+                // World.getTopBlock and BOP.getTopBlockCoord start at sea level;
+                // they do not scan downward from the highest block in the column.
+                int y = 63;
+                while (y < 255 && !isAir(blocks[offset + y + 1])) y++;
+                int index = z * 16 + x;
+                result[index] =
+                        new SpawnSearch.Surface(
+                                blocks[offset + y],
+                                biomes[index],
+                                y,
+                                spawnBiomes.contains(biomes[index]));
+            }
+        return result;
+    }
+
+    private static boolean isAir(Block block) {
+        return block == null || block == Blocks.air;
+    }
+
+    RwgChunkBiomeReplay(
+            World previewWorld,
+            long seed,
+            Object manager,
+            Object perlin,
+            Object cell,
+            Class<?> biomeType,
+            Class<?> managerType,
+            Class<?> noiseType,
+            Class<?> cellType)
             throws ReflectiveOperationException {
         this.previewWorld = previewWorld;
         this.seed = seed;
@@ -48,25 +94,49 @@ final class RwgChunkBiomeReplay {
         Method mapMethod = null;
         for (Method candidate : biomeType.getMethods()) {
             Class<?>[] parameters = candidate.getParameterTypes();
-            if (candidate.getName().equals("generateMapGen") && parameters.length == 11
-                    && parameters[0] == Block[].class && parameters[4].isInstance(manager)) {
+            if (candidate.getName().equals("generateMapGen")
+                    && parameters.length == 11
+                    && parameters[0] == Block[].class
+                    && parameters[4].isInstance(manager)) {
                 mapMethod = candidate;
                 break;
             }
         }
-        if (mapMethod == null) throw new NoSuchMethodException(biomeType.getName() + ".generateMapGen");
+        if (mapMethod == null)
+            throw new NoSuchMethodException(biomeType.getName() + ".generateMapGen");
         mapGen = mapMethod;
         mapGen.setAccessible(true);
-        replace = biomeType.getMethod("rReplace", Block[].class, byte[].class,
-                int.class, int.class, int.class, int.class, int.class, World.class, Random.class,
-                noiseType, cellType, float[].class, float.class, BiomeGenBase[].class);
+        replace =
+                biomeType.getMethod(
+                        "rReplace",
+                        Block[].class,
+                        byte[].class,
+                        int.class,
+                        int.class,
+                        int.class,
+                        int.class,
+                        int.class,
+                        World.class,
+                        Random.class,
+                        noiseType,
+                        cellType,
+                        float[].class,
+                        float.class,
+                        BiomeGenBase[].class);
         replace.setAccessible(true);
         noise2 = perlin.getClass().getMethod("noise2", float.class, float.class);
         noise2.setAccessible(true);
     }
 
-    BiomeGenBase[] replay(int chunkX, int chunkZ, Object[] realistic, BiomeGenBase[] base,
-            BiomeGenBase[] rivers, float[] heights, float[] rawRivers, Object[] mapBiomes)
+    BiomeGenBase[] replay(
+            int chunkX,
+            int chunkZ,
+            Object[] realistic,
+            BiomeGenBase[] base,
+            BiomeGenBase[] rivers,
+            float[] heights,
+            float[] rawRivers,
+            Object[] mapBiomes)
             throws ReflectiveOperationException {
         // RWG uses X-major terrain columns but Z-major biome arrays.
         java.util.Arrays.fill(metadata, (byte) 0);
@@ -86,21 +156,48 @@ final class RwgChunkBiomeReplay {
         // getNewNoise records the nonzero weights at local (8,8). Ascending
         // realistic id order and the original per-biome map RNG are significant.
         for (Object biome : mapBiomes) {
-            mapGen.invoke(biome, blocks, metadata, Long.valueOf(seed), previewWorld, manager,
-                    mapRandom, chunkX, chunkZ, perlin, cell, heights);
+            mapGen.invoke(
+                    biome,
+                    blocks,
+                    metadata,
+                    Long.valueOf(seed),
+                    previewWorld,
+                    manager,
+                    mapRandom,
+                    chunkX,
+                    chunkZ,
+                    perlin,
+                    cell,
+                    heights);
         }
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 int index = z * 16 + x;
                 int bx = chunkX * 16 + x, bz = chunkZ * 16 + z;
                 float river = -rawRivers[x * 16 + z];
-                if (river > 0.05F && river + (Float) noise2.invoke(perlin, bx / 10.0F, bz / 10.0F) * 0.15F > 0.8F) {
+                if (river > 0.05F
+                        && river + (Float) noise2.invoke(perlin, bx / 10.0F, bz / 10.0F) * 0.15F
+                                > 0.8F) {
                     base[index] = rivers[index];
                 }
                 // Dispatch to the actual registered object's override. BOP's
                 // support class invokes all of its painters in their own order.
-                replace.invoke(realistic[index], blocks, metadata, bx, bz, z, x, -1,
-                        previewWorld, random, perlin, cell, heights, river, base);
+                replace.invoke(
+                        realistic[index],
+                        blocks,
+                        metadata,
+                        bx,
+                        bz,
+                        z,
+                        x,
+                        -1,
+                        previewWorld,
+                        random,
+                        perlin,
+                        cell,
+                        heights,
+                        river,
+                        base);
                 int bottom = (x * 16 + z) * 256;
                 blocks[bottom] = Blocks.bedrock;
                 for (int bound = 2; bound <= 5; bound++) {
@@ -110,8 +207,11 @@ final class RwgChunkBiomeReplay {
         }
         for (int index = 0; index < base.length; index++) {
             if (base[index] == null) {
-                throw new IllegalStateException("RWG native replay returned null biome at "
-                        + (chunkX * 16 + index % 16) + "," + (chunkZ * 16 + index / 16));
+                throw new IllegalStateException(
+                        "RWG native replay returned null biome at "
+                                + (chunkX * 16 + index % 16)
+                                + ","
+                                + (chunkZ * 16 + index / 16));
             }
         }
         return base;

@@ -91,6 +91,12 @@ public class Zoom {
 		mousePosition = new Point();
 	}
 
+    public int getLevel() { return level; }
+    public void restoreLevel(int saved) {
+        level=Math.max(getMinZoomLevel(),Math.min(saved,Math.min(160,getMaxZoomLevel())));
+        current=target=zoomFromLevel(level);remainingTicks=0;
+    }
+
 	@CalledOnlyBy(AmidstThread.EDT)
 	public double screenToWorld(double coordinate) {
 		return coordinate / current;
