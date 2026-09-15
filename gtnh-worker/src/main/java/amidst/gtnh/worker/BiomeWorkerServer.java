@@ -16,7 +16,6 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -29,7 +28,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import net.minecraft.world.WorldServer;
-import net.minecraft.world.ChunkPosition;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.biome.WorldChunkManager;
 import net.minecraftforge.common.BiomeDictionary;
@@ -39,8 +37,9 @@ import com.google.gson.Gson;
 
 final class BiomeWorkerServer implements Closeable {
 
-    private static final int PROTOCOL_VERSION = 21;
+    private static final int PROTOCOL_VERSION = 25;
     private final ProspectingService prospectingService = new ProspectingService();
+    private final SpawnSearchCache spawnSearches = new SpawnSearchCache(this::getArbitrarySeedSampler);
     private static final int NETHER = -1;
     private static final int OVERWORLD = 0;
     private static final int END = 1;
@@ -66,6 +65,10 @@ final class BiomeWorkerServer implements Closeable {
     private final int port;
     private final String token;
     private final Gson gson = new Gson();
+    private final MapCacheIdentity mapIdentity;
+    private WorldServer stateWorld;
+    private WorldServer stateEndWorld;
+    private String worldSession = java.util.UUID.randomUUID().toString();
     private final BlockingQueue<FutureTask<Response>> serverThreadQueries = new LinkedBlockingQueue<FutureTask<Response>>();
     private final ExecutorService clientExecutor = Executors.newFixedThreadPool(4, daemonFactory("GTNH biome client"));
     private final Deque<ChunkChange> overworldChunkChanges = new ArrayDeque<ChunkChange>();
@@ -94,6 +97,7 @@ final class BiomeWorkerServer implements Closeable {
     private SpaceStructurePredictor spaceStructurePredictor;
     private OreVeinPredictor oreVeinPredictor;
     private JourneyMapWaypointImporter journeyMapWaypointImporter;
+    private final AdditionalDimensionBiomes additionalDimensionBiomes = new AdditionalDimensionBiomes();
     private final Map<Long, SurfaceBiomeSampler> arbitrarySeedSamplers =
             new LinkedHashMap<Long, SurfaceBiomeSampler>(8, 0.75F, true) {
 
@@ -128,8 +132,13 @@ final class BiomeWorkerServer implements Closeable {
             };
 
     BiomeWorkerServer(int port, String token) {
+        this(port, token, new MapCacheIdentity());
+    }
+
+    BiomeWorkerServer(int port, String token, MapCacheIdentity mapIdentity) {
         this.port = port;
         this.token = token;
+        this.mapIdentity = mapIdentity;
     }
 
     /** A failed optional map service must not prevent Minecraft from starting. */
@@ -327,6 +336,7 @@ final class BiomeWorkerServer implements Closeable {
 
     private Response executeOnServerThread(Request request) {
         try {
+            if ("validate".equals(request.command)) return validateAccuracy(request);
             if ("prospecting_catalog".equals(request.command)) {
                 Response response = Response.ok();
                 response.prospectingDimensions = prospectingService.catalog();
@@ -343,8 +353,26 @@ final class BiomeWorkerServer implements Closeable {
             if ("hello".equals(request.command)) {
                 return createHelloResponse();
             }
+            if ("cache_context".equals(request.command)) {
+                Response response = Response.ok();
+                try {
+                    response.cacheIdentity = mapIdentity.viewIdentity(request.seed);
+                    if (request.width > 0) {
+                        validateRequest(request);
+                        response.cacheStamp = mapIdentity.tile(request.seed,request.dimension,request.dimensionKey,
+                                request.x,request.z,request.width,request.height,request.step);
+                    }
+                } catch (RuntimeException e) { AmidstGtnhWorkerLog.LOG.warn("Disk map cache unavailable",e); }
+                return response;
+            }
             if ("biomes".equals(request.command)) {
-                return sampleBiomes(request);
+                Response response = sampleBiomes(request);
+                if (request.cacheStamp != null) try {
+                    String after = mapIdentity.tile(request.seed,request.dimension,request.dimensionKey,
+                            request.x,request.z,request.width,request.height,request.step);
+                    if (request.cacheStamp.equals(after)) response.cacheStamp = after;
+                } catch(RuntimeException ignored) { /* Cache is optional. */ }
+                return response;
             }
             if ("compare_biomes".equals(request.command)) {
                 return compareLoadedOverworldBiomes(request);
@@ -378,6 +406,41 @@ final class BiomeWorkerServer implements Closeable {
         }
     }
 
+    private Response validateAccuracy(Request r) {
+        if(r.accuracyJob==null) {
+            String session=createWorldStateResponse(r).worldSession;
+            if(r.expectedSession!=null && !r.expectedSession.equals(session))
+                throw new IllegalStateException("World changed between validation categories; run again");
+            r.accuracyJob=new AccuracyValidation.Job(r.seed,r.dimension,r.x,r.z,r.width,r.height,r.step,
+                    r.category,session,(x,z)->independentBiome(r,x,z),(id,unused)->validationDisplayId(r,id),prospectingService);
+        }
+        r.accuracyJob.checkWorld();
+        if("STRUCTURES".equals(r.category) && r.accuracyJob.structures==null) {
+            if(AdditionalDimensionBiomes.supports(r.dimensionKey)) {
+                r.accuracyJob.structures=new ArrayList<>();
+                r.accuracyJob.result.add("STRUCTURES",r.x,r.z,"","","UNVERIFIED","No structure predictor for this dimension");
+            } else r.accuracyJob.structures=sampleStructures(r).structures;
+        }
+        if(!r.accuracyJob.advance(queryDeadline))throw YieldQuery.INSTANCE;
+        Response response=Response.ok();response.accuracy=r.accuracyJob.result;return response;
+    }
+    private int independentBiome(Request r,int x,int z) {
+        if(matches(r,OVERWORLD_KEY,OVERWORLD))return getSampler(r.seed,0).getPredictedBiomeAt(x,z).biomeID;
+        if(matches(r,NETHER_KEY,NETHER))return getArbitrarySeedNetherSampler(r.seed).getBiomeAt(x,z).biomeID;
+        if(matches(r,END_KEY,END))return -1;
+        if(matches(r,MOON_KEY,MoonBiomeSampler.configuredDimensionId()))return validationDisplayId(r,MoonBiomeSampler.biome().biomeID);
+        if(matches(r,TWILIGHT_FOREST_KEY,TwilightForestBiomeSampler.configuredDimensionId()))
+            return getArbitrarySeedTwilightSampler(r.seed).getBiomeAt(x,z).biomeID;
+        if(AdditionalDimensionBiomes.supports(r.dimensionKey))return additionalDimensionBiomes.sample(r.seed,r.dimension,r.dimensionKey,x,z,1,1,1,false)[0];
+        if(SpaceDimensionSampler.virtualBiomeId(r.dimensionKey,r.dimension)>=0)return -1;
+        if(spaceDimensionSampler==null)spaceDimensionSampler=new SpaceDimensionSampler();
+        return spaceDimensionSampler.sample(r.seed,r.dimension,r.dimensionKey,x,z,1,1,1,false)[0];
+    }
+    private int validationDisplayId(Request r,int raw) {
+        if(AdditionalDimensionBiomes.supports(r.dimensionKey))return AdditionalDimensionBiomes.sampledDisplayId(r.dimensionKey,AdditionalDimensionBiomes.sources().get(r.dimensionKey),raw);
+        return SpaceDimensionSampler.displayBiomeId(r.dimensionKey,raw);
+    }
+
     private Response importJourneyMapWaypoints(Request request) {
         if (journeyMapWaypointImporter == null) {
             journeyMapWaypointImporter = new JourneyMapWaypointImporter();
@@ -391,6 +454,18 @@ final class BiomeWorkerServer implements Closeable {
 
     private synchronized Response createWorldStateResponse(Request request) {
         Response response = Response.ok();
+        WorldServer current = DimensionManager.getWorld(0);
+        WorldServer currentEnd = DimensionManager.getWorld(1);
+        // End prospecting depends on HEE's loaded-world island layout. Invalidate
+        // previously empty asteroid results when that world becomes available.
+        if (current != stateWorld || currentEnd != stateEndWorld) {
+            stateWorld = current;
+            stateEndWorld = currentEnd;
+            worldSession = java.util.UUID.randomUUID().toString();
+            response.fullRefresh = true;
+            biomeTileCache.clear(); liveTilePredictions.clear();
+        }
+        response.worldSession = worldSession;
         response.worldRevision = overworldChunkRevision;
         if (request.sinceRevision < 0L) {
             response.chunkXs = new int[0];
@@ -512,6 +587,12 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private Response sampleOtherBiomePatch(Request request) {
+        if (AdditionalDimensionBiomes.supports(request.dimensionKey)) {
+            Response response = Response.ok();
+            response.ids = additionalDimensionBiomes.sample(request.seed, request.dimension, request.dimensionKey,
+                    request.x, request.z, request.width, request.height, request.step);
+            return response;
+        }
         if (matches(request, NETHER_KEY, NETHER)) {
             return sampleNetherBiomes(request);
         }
@@ -728,20 +809,26 @@ final class BiomeWorkerServer implements Closeable {
         if (request.dimension != 0) {
             throw new IllegalArgumentException("spawn prediction supports only overworld dimension 0");
         }
-        SurfaceBiomeSampler sampler = getSampler(request.seed, request.dimension);
-        Random random = new Random(request.seed);
-        ChunkPosition biomePosition = sampler.findSpawnBiomePosition(random);
-        int x = biomePosition == null ? 0 : biomePosition.chunkPosX;
-        int z = biomePosition == null ? 0 : biomePosition.chunkPosZ;
-        int attempts = 0;
-        while (!sampler.isLikelySpawnCoordinate(x, z) && attempts < 1000) {
-            x += random.nextInt(64) - random.nextInt(64);
-            z += random.nextInt(64) - random.nextInt(64);
-            attempts++;
-        }
         Response response = Response.ok();
-        response.spawnX = x;
-        response.spawnZ = z;
+        WorldServer world = DimensionManager.getWorld(0);
+        net.minecraft.util.ChunkCoordinates saved = SavedWorldSpawn.read(world, request.seed);
+        if (saved != null) {
+            response.spawnX = saved.posX; response.spawnY = saved.posY; response.spawnZ = saved.posZ;
+            response.spawnSource = "RECORDED";
+            return response;
+        }
+        net.minecraft.world.WorldProvider provider = DimensionManager.createProviderFor(0);
+        String providerName = provider == null ? "" : provider.getClass().getName();
+        if (!SpawnSearch.supported(providerName)) {
+            response.spawnSource = "UNAVAILABLE";
+            return response;
+        }
+        SpawnSearch.Job search = spawnSearches.get(request.seed, providerName);
+        // Keep the job when a client times out: the next poll resumes, rather than
+        // restarting a thousand terrain checks. Only detached preview arrays are used.
+        if (!search.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+        response.spawnX = search.x; response.spawnZ = search.z;
+        response.spawnSource = "ESTIMATED";
         return response;
     }
 
@@ -1034,7 +1121,8 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private static void validateRequest(Request request) {
-        if (!matches(request, OVERWORLD_KEY, OVERWORLD)
+        if (!AdditionalDimensionBiomes.supports(request.dimensionKey)
+                && !matches(request, OVERWORLD_KEY, OVERWORLD)
                 && !matches(request, NETHER_KEY, NETHER)
                 && !matches(request, END_KEY, END)
                 && !matches(request, MOON_KEY, MoonBiomeSampler.configuredDimensionId())
@@ -1124,6 +1212,13 @@ final class BiomeWorkerServer implements Closeable {
                 byId.put(
                         Integer.valueOf(displayId),
                         new BiomeDescriptor(displayId, source));
+            }
+        }
+        for (Map.Entry<String, BiomeGenBase[]> entry : AdditionalDimensionBiomes.sources().entrySet()) {
+            // Planet-local instances can share a raw ID with another mod.
+            for (BiomeGenBase biome : entry.getValue()) {
+                int id = AdditionalDimensionBiomes.displayId(entry.getKey(), biome.biomeID);
+                byId.put(id, new BiomeDescriptor(id, new BiomeDescriptor(biome)));
             }
         }
         addSyntheticEndBiome(
@@ -1233,6 +1328,7 @@ final class BiomeWorkerServer implements Closeable {
         arbitrarySeedTwilightSamplers.clear();
         biomeTileCache.clear();
         liveTilePredictions.clear();
+        additionalDimensionBiomes.close();
         if (spaceDimensionSampler != null) {
             spaceDimensionSampler.close();
         }
@@ -1240,6 +1336,9 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private static final class Request {
+        private String category, expectedSession;
+        private transient AccuracyValidation.Job accuracyJob;
+        private String cacheStamp;
 
         private String markerMode;
         private amidst.gtnh.prospecting.ProspectingData.QueryFilter prospectingFilter;
@@ -1331,6 +1430,8 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private static final class Response {
+        private amidst.gtnh.validation.AccuracyReport accuracy;
+        private String cacheIdentity, cacheStamp, worldSession;
 
         private java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
         private amidst.gtnh.prospecting.ProspectingData.Tile prospecting;
@@ -1372,8 +1473,8 @@ final class BiomeWorkerServer implements Closeable {
         private String predictionPipeline;
         private String biomeSource;
         private List<RoguelikeDungeonPredictor.StructureDescriptor> structures;
-        private int spawnX;
-        private int spawnZ;
+        private Integer spawnX, spawnY, spawnZ;
+        private String spawnSource;
         private int importedWaypoints;
         private long worldRevision;
         private boolean fullRefresh;

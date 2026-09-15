@@ -171,7 +171,7 @@ public enum Dimension {
 	}
 
     /** Additional entries use stable local preference IDs; the worker resolves the actual configured ID. */
-    public boolean isProspectingOnly() { return id <= -2001 && id >= -2024; }
+    public boolean isAdditional() { return id <= -2001 && id >= -2024; }
 
     public String prospectingKey() {
         return switch (this) {

@@ -20,7 +20,12 @@ public interface GtnhBiomeSource {
             int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws MinecraftInterfaceException {
         return prospect(seed, dimension, x, z, width, height, mode);
     }
-	int PROTOCOL_VERSION = 21;
+    default amidst.gtnh.validation.AccuracyReport validate(long seed,int dimension,String key,int x,int z,
+            int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
+        throw new MinecraftInterfaceException("Accuracy validation is unavailable");
+    }
+	int PROTOCOL_VERSION = 25;
+    default String cacheIdentity(long seed) throws MinecraftInterfaceException { return null; }
 
 	GtnhWorkerInfo getWorkerInfo() throws MinecraftInterfaceException;
 
@@ -56,8 +61,13 @@ public interface GtnhBiomeSource {
 
 	default CoordinatesInWorld sampleSpawn(long seed, int dimensionId)
 			throws MinecraftInterfaceException {
-		return CoordinatesInWorld.origin();
+		return null;
 	}
+
+    default GtnhSpawnPoint sampleSpawnPoint(long seed, int dimensionId) throws MinecraftInterfaceException {
+        CoordinatesInWorld point = sampleSpawn(seed, dimensionId);
+        return point == null ? null : new GtnhSpawnPoint((int) point.getX(), null, (int) point.getY(), "ESTIMATED");
+    }
 
 	default List<GtnhStructureDescriptor> sampleStructures(
 			long seed,

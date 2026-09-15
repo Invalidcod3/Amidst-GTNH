@@ -17,6 +17,37 @@ import amidst.mojangapi.world.biome.BiomeColor;
 
 public class GtnhBiomeColorPaletteTest {
 	@Test
+	public void plutoColorsFollowSurfaceMaterialsAcrossRegistryAndScopedIds() throws Exception {
+		String[] names = { "Pluto", "Pluto2", "Pluto3", "Pluto4" };
+		String[] textureMeans = { "#A57E61", "#F9F0D6", "#C3B9AF", "#8C5235" };
+		// Raw mod colors and cold/snowy tags must not override actual surface colors.
+		// Worker scopes dimension-local biome IDs, and modpack configurations can change IDs.
+		for (int baseId : new int[] { 40, 220, 4096, 5632 }) {
+			var biomes = new java.util.ArrayList<GtnhBiomeDescriptor>();
+			for (int i = 0; i < names.length; i++) {
+				biomes.add(biome(baseId + i, names[i], 0x00FFFF, "GALAXYSPACE", "COLD", "SNOWY"));
+			}
+			Map<Integer, BiomeColor> colors = GtnhBiomeColorPalette.create(info(biomes), null);
+			for (int i = 0; i < names.length; i++) assertEquals(textureMeans[i], hex(colors.get(baseId + i)));
+			assertEquals(4, colors.values().stream().map(GtnhBiomeColorPaletteTest::hex).distinct().count());
+		}
+	}
+
+	@Test
+	public void explicitPlutoColorOverridesStillTakePriority() throws Exception {
+		Path file = Files.createTempFile("pluto-biome-colors", ".json");
+		try {
+			Files.writeString(file, "{\"byName\":{\"Pluto\":\"#112233\"},\"byId\":{\"41\":\"#445566\"}}");
+			var colors = GtnhBiomeColorPalette.create(info(List.of(
+					biome(40, "Pluto", 0, "GALAXYSPACE"), biome(41, "Pluto2", 0, "GALAXYSPACE"))), file);
+			assertEquals("#112233", hex(colors.get(40)));
+			assertEquals("#445566", hex(colors.get(41)));
+		} finally {
+			Files.deleteIfExists(file);
+		}
+	}
+
+	@Test
 	public void twilightForestUsesTheMagicMapBiomeColorExactly() {
 		GtnhBiomeDescriptor biome = biome(
 				220,

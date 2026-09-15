@@ -107,6 +107,8 @@ public class AmidstMenuBuilder {
 		Menus.item(result, actions::takeScreenshot,        "Take Screenshot ...",        KeyEvent.VK_T, MenuShortcuts.TAKE_SCREENSHOT);
 		result.addSeparator();
 		Menus.item(result, actions::openCoordinateExportDialog, "Export Coordinates ...",        KeyEvent.VK_E);
+        Menus.item(result, actions::openAccuracyValidationDialog, "Accuracy validation ...", KeyEvent.VK_A);
+        Menus.item(result, actions::refreshMap, "Refresh map and structure checks", KeyEvent.VK_F);
 		Menus.item(result, actions::openExportDialog,      "Export Biomes to Image ...", KeyEvent.VK_X, MenuShortcuts.EXPORT_BIOMES);
 		// @formatter:on
 		return result;
@@ -138,6 +140,9 @@ public class AmidstMenuBuilder {
 		Menus.checkbox(result, settings.showScale,            "Show Scale");
 		Menus.checkbox(result, settings.showDebug,            "Show Debug Information");
 		Menus.checkbox(result, settings.useHybridScaling,     "Use Hybrid Scaling");
+		Menus.checkbox(result, settings.autoImportJourneyMap, "Double-click markers to add to JourneyMap");
+        Menus.checkbox(result, settings.cacheMap.withListener((a,b)->amidst.gtnh.cache.MapStorage.enabled=b), "Cache biome maps on disk");
+        Menus.checkbox(result, settings.rememberMap, "Restore the previous map view");
 		// @formatter:on
 		result.addSeparator();
 		result.add(create_Settings_LookAndFeel());

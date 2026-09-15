@@ -21,6 +21,34 @@ import amidst.settings.Setting;
 import amidst.gtnh.prospecting.ProspectingData.*;
 
 public class ProspectingOverlayTest {
+    @Test public void additionalDimensionOverlayPreservesAvailableBiomeBackground() throws Exception {
+        DimensionInfo info = new DimensionInfo(); info.key = "Everglades";
+        var source = new ProspectingOverlay.DataSource() {
+            public List<DimensionInfo> dimensions() { return List.of(info); }
+            public Tile load(Dimension d, int x, int z, String mode) { throw new AssertionError(); }
+        };
+        var settings = new AmidstSettings(new MemoryPreferences());
+        settings.dimension.set(Dimension.EVERGLADES); settings.markerMode.set(MarkerMode.ORES);
+        try (var overlay = new ProspectingOverlay(source, settings, null, null)) {
+            SwingUtilities.invokeAndWait(() -> {
+                for (boolean available : new boolean[] {false, true}) {
+                    info.biomes = available;
+                    BufferedImage image = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D g = image.createGraphics(); g.setColor(Color.GREEN); g.fillRect(0, 0, 200, 200);
+                    overlay.draw(g, 200, 200, null); g.dispose();
+                    assertEquals(available ? Color.GREEN.getRGB() : new Color(26, 29, 33).getRGB(), image.getRGB(5, 5));
+                }
+            });
+        }
+    }
+
+    @Test public void journeyMapAutoImportIsOptInAndRemembersChoice() {
+        var preferences = new MemoryPreferences();
+        var settings = new AmidstSettings(preferences);
+        assertFalse(settings.autoImportJourneyMap.get());
+        settings.autoImportJourneyMap.set(true);
+        assertTrue(new AmidstSettings(preferences).autoImportJourneyMap.get());
+    }
     static class MemoryPreferences extends AbstractPreferences {
         final Map<String,String> values = new HashMap<>();
         MemoryPreferences() { super(null, ""); }
@@ -75,6 +103,24 @@ public class ProspectingOverlayTest {
             });
             BufferedImage detail = settle(overlay);
             assertTrue(calls.get() > 0);
+            List<amidst.gtnh.export.GtnhMapWaypoint> imports = new ArrayList<>();
+            SwingUtilities.invokeAndWait(() -> {
+                settings.autoImportJourneyMap.set(true);
+                overlay.setOnDoubleClick(imports::add);
+                doubleClick(overlay, translator.worldToScreen(117, 35));
+                assertEquals(1, imports.size());
+                assertEquals(Dimension.OVERWORLD, imports.get(0).dimension());
+                assertEquals(120, imports.get(0).waypoint().x());
+                assertEquals(40, imports.get(0).waypoint().z());
+                settings.dimension.set(Dimension.MOON);
+                doubleClick(overlay, translator.worldToScreen(117, 35));
+                assertEquals("Do not import stale hits after changing dimension", 1, imports.size());
+                settings.dimension.set(Dimension.OVERWORLD);
+                settings.prospectingMinimumFluid.set(1000);
+                doubleClick(overlay, translator.worldToScreen(117, 35));
+                assertEquals("Filtered chunks must not be imported", 1, imports.size());
+                settings.prospectingMinimumFluid.set(0);
+            });
             Path output = Path.of("build/reports/prospecting"); Files.createDirectories(output);
             ImageIO.write(detail, "png", output.resolve("fluid-detail.png").toFile());
             int before = calls.get(); settle(overlay); assertEquals("Repeated draws reuse completed tiles", before, calls.get());
@@ -90,6 +136,13 @@ public class ProspectingOverlayTest {
             SwingUtilities.invokeAndWait(() -> settings.prospectingMinimumFluid.set(0));
             SwingUtilities.invokeAndWait(() -> { settings.markerMode.set(MarkerMode.ORES); });
             BufferedImage ores = settle(overlay); ImageIO.write(ores, "png", output.resolve("ores.png").toFile());
+            SwingUtilities.invokeAndWait(() -> {
+                doubleClick(overlay, translator.worldToScreen(24, 24));
+                assertEquals(2, imports.size());
+                assertEquals(24, imports.get(1).waypoint().x());
+                assertEquals(24, imports.get(1).waypoint().z());
+                assertEquals(60, imports.get(1).waypoint().y());
+            });
             assertNotEquals("Switching mode replaces the rendered overlay", detail.getRGB(500, 380), ores.getRGB(500, 380));
             SwingUtilities.invokeAndWait(() -> { zoom.adjustZoom(new Point(), 16); zoom.skipFading(); translator.update(1200,800);
                 translator.centerOn(CoordinatesInWorld.from(100,100)); settings.markerMode.set(MarkerMode.FLUID); });
@@ -109,6 +162,10 @@ public class ProspectingOverlayTest {
             Thread.sleep(10);
         }
         return image;
+    }
+    private static void doubleClick(ProspectingOverlay overlay, Point point) {
+        overlay.click(new java.awt.event.MouseEvent(new javax.swing.JPanel(), java.awt.event.MouseEvent.MOUSE_CLICKED,
+                0, 0, point.x, point.y, 2, false, java.awt.event.MouseEvent.BUTTON1));
     }
     @Test public void allProspectingDimensionsHaveUniqueStableKeys() {
         Set<String> keys = new HashSet<>(); Set<Integer> ids = new HashSet<>();

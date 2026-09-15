@@ -18,6 +18,17 @@ import amidst.mojangapi.world.icon.WorldIcon;
 
 public class GtnhRoguelikeDungeonProducersTest {
 
+    @Test public void endAsteroidIconsPreserveCenterHeight() throws Exception {
+        RecordingSource source = new RecordingSource();
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 42L);
+        var icons = producers.get(GtnhEndStructureType.END_PLATINUM_ASTEROID)
+                .getAt(CoordinatesInWorld.from(-512, 0), null);
+        assertEquals(1, icons.size());
+        assertEquals(Dimension.END, icons.get(0).getDimension());
+        assertEquals(CoordinatesInWorld.from(-258, 364), icons.get(0).getCoordinates());
+        assertEquals(Integer.valueOf(167), icons.get(0).getHeight());
+    }
+
 	@Test
 	public void filtersTypesLabelsIconsAndSharesFragmentQuery() throws Exception {
 		RecordingSource source = new RecordingSource();
@@ -90,6 +101,7 @@ public class GtnhRoguelikeDungeonProducersTest {
 				"Possible Vanilla Spawner Dungeon (Y 34)",
 				vanillaDungeons.get(0).getName());
 		assertTrue(vanillaDungeons.get(0).getImage() != null);
+		assertEquals(Integer.valueOf(34), vanillaDungeons.get(0).getHeight());
 	}
 
 	@Test
@@ -215,7 +227,7 @@ public class GtnhRoguelikeDungeonProducersTest {
 		GtnhRoguelikeDungeonProducers producers = new GtnhRoguelikeDungeonProducers(
 				new GtnhMinecraftInterface(source),
 				123L,
-				spawn);
+                new amidst.mojangapi.world.oracle.ImmutableWorldSpawnOracle(spawn));
 
 		List<WorldIcon> containing = producers
 				.get(GtnhOverworldStructureType.WORLD_SPAWN)
@@ -231,7 +243,33 @@ public class GtnhRoguelikeDungeonProducersTest {
 		assertEquals(0, source.queryCount);
 	}
 
-	private static final class RecordingSource implements GtnhBiomeSource {
+    @Test public void clearingDuringAnOldNegativeReplyCannotHideNewDungeon() throws Exception {
+        var entered=new java.util.concurrent.CountDownLatch(1);
+        var release=new java.util.concurrent.CountDownLatch(1);
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        RecordingSource source=new RecordingSource() {
+            @Override public List<GtnhStructureDescriptor> sampleStructureGroup(long seed,int dimension,String key,int x,int z,int w,int h,String group) {
+                if(calls.incrementAndGet()==1) {
+                    entered.countDown();
+                    try {if(!release.await(3,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("timeout");}
+                    catch(InterruptedException e){throw new AssertionError(e);}
+                    return List.of();
+                }
+                return List.of(new GtnhStructureDescriptor("ROGUELIKE_DUNGEON","DESERT",20,20,"POSSIBLE"));
+            }
+        };
+        var producers=new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source),7L);
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var old=pool.submit(()->producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(CoordinatesInWorld.origin(),null));
+            assertTrue(entered.await(3,java.util.concurrent.TimeUnit.SECONDS));
+            producers.clearCachedPredictions();release.countDown();assertTrue(old.get().isEmpty());
+            assertEquals(1,producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(CoordinatesInWorld.origin(),null).size());
+            assertEquals(2,calls.get());
+        }finally{release.countDown();pool.shutdownNow();}
+    }
+
+	private static class RecordingSource implements GtnhBiomeSource {
 		private final List<String> groups = new java.util.ArrayList<>();
         @Override
         public List<GtnhStructureDescriptor> sampleStructureGroup(long seed, int dimensionId,
@@ -292,6 +330,9 @@ public class GtnhRoguelikeDungeonProducersTest {
 				int height) {
 			queryCount++;
 			this.dimensionId = dimensionId;
+			if (dimensionId == Dimension.END.getId()) {
+                return List.of(new GtnhStructureDescriptor("END_PLATINUM_ASTEROID", "", -258, 364, "EXACT_SEED", 167));
+            }
 			if (dimensionId == Dimension.NETHER.getId()) {
 				netherQueryCount++;
 				return List.of(

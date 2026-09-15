@@ -8,15 +8,20 @@ public final class ProspectingData {
     public static final class DimensionInfo {
         public int id;
         public String key, name, icon;
-        public boolean ores, fluids;
+        public boolean ores, fluids, biomes;
         public List<FilterOption> oreOptions, fluidOptions;
     }
     public static final class FilterOption {
         public String id, name, materials;
+        public String kind;
     }
     public static final class Deposit {
         public int x, z, size, color, minY, maxY;
         public String id, name, materials, icon, source;
+        /** ASTEROID_VEIN / ASTEROID_SMALL, or null for ordinary veins and fluid. */
+        public String kind;
+        /** Seeded asteroid center height; null when an exact navigation height is unavailable. */
+        public Integer y;
         public boolean depleted;
         /** Fluid production in L/operation, x-major within an 8 by 8 chunk field. */
         public int[] amounts;

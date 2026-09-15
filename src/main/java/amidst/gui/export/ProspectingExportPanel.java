@@ -11,6 +11,8 @@ import amidst.i18n.I18n;
 public final class ProspectingExportPanel extends JPanel {
     private final ProspectingFilterPanel filter;
     private final boolean fluid;
+    private final JLabel limitLabel = new JLabel("Maximum coordinates");
+    private final JLabel orderHint = new JLabel("Stops at the limit; scan order is not distance order.");
     final JSpinner minY = new JSpinner(new SpinnerNumberModel(0,0,255,1));
     final JSpinner maxY = new JSpinner(new SpinnerNumberModel(255,0,255,1));
     final JSpinner limit = new JSpinner(new SpinnerNumberModel(1000,1,10000,100));
@@ -37,9 +39,9 @@ public final class ProspectingExportPanel extends JPanel {
             options.add(new JLabel("Maximum Y")); options.add(maxY);
             options.add(recorded); options.add(depleted);
         }
-        options.add(new JLabel("Maximum coordinates")); options.add(limit);
+        options.add(limitLabel); options.add(limit);
         add(options,BorderLayout.CENTER);
-        add(new JLabel("Stops at the limit; scan order is not distance order."),BorderLayout.SOUTH);
+        add(orderHint,BorderLayout.SOUTH);
         I18n.localize(this);
     }
     public ProspectingExport.Options read() {
@@ -53,6 +55,9 @@ public final class ProspectingExportPanel extends JPanel {
         } catch (ParseException e) { throw new IllegalArgumentException(I18n.text("Enter whole numbers within the allowed range."),e); }
     }
     public void setControlsEnabled(boolean enabled) { setEnabled(this,enabled); }
+    public void setRadial(boolean radial) {
+        limit.setVisible(!radial); limitLabel.setVisible(!radial); orderHint.setVisible(!radial);
+    }
     private static void setEnabled(Container container,boolean enabled) {
         for (Component component : container.getComponents()) {
             component.setEnabled(enabled); if (component instanceof Container child) setEnabled(child,enabled);

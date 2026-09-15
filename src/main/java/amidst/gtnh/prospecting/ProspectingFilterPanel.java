@@ -34,7 +34,8 @@ public final class ProspectingFilterPanel extends JPanel {
         selection.addItem(new Choice("", fluid ? "All fluids" : "All ore veins", ""));
         byId.values().stream().sorted(Comparator.comparing((FilterOption o) -> o.name, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(o -> o.id)).forEach(o -> selection.addItem(new Choice(o.id,
-                        o.name + (names.get(o.name) > 1 ? " [" + o.id + "]" : ""), o.materials)));
+                        o.name + (o.kind == null ? "" : " · " + ProspectingLabels.kind(o.kind))
+                                + (names.get(o.name) > 1 && o.kind == null ? " [" + o.id + "]" : ""), o.materials)));
         selection.setEditable(false);
         selection.setMaximumRowCount(16);
         selection.setPreferredSize(new Dimension(360, selection.getPreferredSize().height));

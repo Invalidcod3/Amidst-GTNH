@@ -18,6 +18,9 @@ final class SurfaceSamplerFixture {
         constructor.setAccessible(true);
         SurfaceBiomeSampler sampler = (SurfaceBiomeSampler) constructor.newInstance(null, manager);
         enableAdaptive(sampler);
+        java.lang.reflect.Field caves = type.getDeclaredField("spawnCaves");
+        caves.setAccessible(true);
+        caves.set(sampler, new RwgSpawnCaves(null, null, () -> false));
         return sampler;
     }
 

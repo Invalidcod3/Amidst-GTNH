@@ -2,6 +2,7 @@ package amidst.gtnh.worker;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 
 import java.util.List;
@@ -17,6 +18,38 @@ import amidst.mojangapi.world.WorldType;
 import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 
 public class GtnhMinecraftInterfaceTest {
+
+	@Test
+	public void waypointImportUsesRuntimeIdsAndPreservesNativeCoordinates() throws Exception {
+		RecordingSource source = new RecordingSource(123L, "RWG");
+		source.catalog = java.util.Arrays.stream(Dimension.values()).map(d -> {
+			var info = new amidst.gtnh.prospecting.ProspectingData.DimensionInfo();
+			info.key = d.prospectingKey(); info.id = 5000 + d.ordinal();
+			return info;
+		}).toList();
+		GtnhMinecraftInterface minecraft = new GtnhMinecraftInterface(source);
+		var waypoint = new amidst.gtnh.export.GtnhWaypoint("Test", -137, 39, 259, 12, 34, 56);
+		for (Dimension dimension : Dimension.values()) {
+			assertEquals(1, minecraft.importJourneyMapWaypoints(dimension, List.of(waypoint)));
+			assertEquals(5000 + dimension.ordinal(), source.lastDimension);
+			assertEquals(List.of(waypoint), source.lastWaypoints);
+		}
+	}
+
+	@Test
+	public void waypointImportUsesHelloIdsAndRejectsUnresolvedPreferenceIds() throws Exception {
+		RecordingSource source = new RecordingSource(123L, "RWG");
+		GtnhMinecraftInterface minecraft = new GtnhMinecraftInterface(source);
+		var waypoints = List.of(new amidst.gtnh.export.GtnhWaypoint("Test", -137, 64, 259, 12, 34, 56));
+		minecraft.importJourneyMapWaypoints(Dimension.NETHER, waypoints);
+		assertEquals(-1, source.lastDimension);
+		assertEquals(waypoints, source.lastWaypoints);
+		minecraft.importJourneyMapWaypoints(Dimension.MOON, waypoints);
+		assertEquals(-29, source.lastDimension);
+		minecraft.importJourneyMapWaypoints(Dimension.BARNARDA_C, waypoints);
+		assertEquals(-1222, source.lastDimension);
+		assertThrows(MinecraftInterfaceException.class, () -> minecraft.importJourneyMapWaypoints(Dimension.VENUS, waypoints));
+	}
 
 	@Test
 	public void quarterResolutionUsesFourBlockSampling() throws Exception {
@@ -323,11 +356,50 @@ public class GtnhMinecraftInterfaceTest {
 		assertEquals(4136, moonBiomeAgain);
 	}
 
+    @Test public void additionalBiomeCapabilitiesUseRuntimeIdsAndNativeCoordinates() throws Exception {
+        RecordingSource source = new RecordingSource(123L, "RWG");
+        source.catalog = java.util.Arrays.stream(Dimension.values()).filter(Dimension::isAdditional).map(d -> {
+            var info = new amidst.gtnh.prospecting.ProspectingData.DimensionInfo();
+            info.key = d.prospectingKey(); info.id = 9000 + d.ordinal(); info.biomes = true;
+            return info;
+        }).toList();
+        var minecraft = new GtnhMinecraftInterface(source);
+        var accessor = minecraft.createWorldAccessor(options(-785L));
+        assertEquals(Dimension.values().length, accessor.supportedDimensions().size());
+        for (Dimension dimension : Dimension.values()) {
+            if (!dimension.isAdditional()) continue;
+            accessor.getBiomeData(dimension, -33, 65, 1, 1, true, data -> data[0]);
+            assertEquals(9000 + dimension.ordinal(), source.lastDimension);
+            assertEquals(dimension.prospectingKey(), source.lastDimensionKey);
+            assertEquals(-785L, source.lastSeed);
+            assertEquals(-132, source.lastX);
+            assertEquals(260, source.lastZ);
+            assertEquals(4, source.lastStep);
+        }
+    }
+
+    @Test public void resourceCatalogDoesNotClaimUnavailableBiomeSupport() throws Exception {
+        RecordingSource source = new RecordingSource(123L, "RWG");
+        var info = new amidst.gtnh.prospecting.ProspectingData.DimensionInfo();
+        info.key = "Everglades"; info.id = 73; info.ores = true;
+        source.catalog = List.of(info);
+        var accessor = new GtnhMinecraftInterface(source).createWorldAccessor(options(123L));
+        assertFalse(accessor.supportedDimensions().contains(Dimension.EVERGLADES));
+        assertThrows(amidst.mojangapi.minecraftinterface.UnsupportedDimensionException.class,
+                () -> accessor.getBiomeData(Dimension.EVERGLADES, 0, 0, 1, 1, false, data -> data[0]));
+    }
+
 	private static WorldOptions options(long seed) {
 		return new WorldOptions(WorldSeed.fromUserInput(Long.toString(seed)), WorldType.DEFAULT);
 	}
 
 	private static final class RecordingSource implements GtnhBiomeSource {
+		private List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> catalog = List.of();
+		private List<amidst.gtnh.export.GtnhWaypoint> lastWaypoints;
+		@Override public List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() { return catalog; }
+		@Override public int importJourneyMapWaypoints(int dimensionId, List<amidst.gtnh.export.GtnhWaypoint> waypoints) {
+			lastDimension = dimensionId; lastWaypoints = waypoints; return waypoints.size();
+		}
 		private final GtnhWorkerInfo info;
 		private int lastDimension;
 		private String lastDimensionKey;

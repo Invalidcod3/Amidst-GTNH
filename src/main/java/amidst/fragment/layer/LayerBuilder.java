@@ -78,7 +78,7 @@ public class LayerBuilder {
 			WorldIconSelection worldIconSelection,
 			Zoom zoom,
 			Graphics2DAccelerationCounter accelerationCounter) {
-		List<LayerDeclaration> declarations = createDeclarations(settings, world.getEnabledLayers());
+		List<LayerDeclaration> declarations = createDeclarations(world, settings, world.getEnabledLayers());
 		return new LayerManager(
 				declarations,
 				new LayerLoader(
@@ -89,49 +89,50 @@ public class LayerBuilder {
 			);
 	}
 
-	private List<LayerDeclaration> createDeclarations(AmidstSettings settings, List<Integer> enabledLayers) {
+	private List<LayerDeclaration> createDeclarations(World world, AmidstSettings settings, List<Integer> enabledLayers) {
 		LayerDeclaration[] declarations = new LayerDeclaration[LayerIds.NUMBER_OF_LAYERS];
 		// @formatter:off
-		declare(settings, declarations, enabledLayers, LayerIds.ALPHA,           null,                false, Setting.createImmutable(true));
-		declare(settings, declarations, enabledLayers, LayerIds.BIOME_DATA,      null,                false, Setting.createImmutable(true));
-		declare(settings, declarations, enabledLayers, LayerIds.END_ISLANDS,     Dimension.END,       false, Setting.createImmutable(true));
-		declare(settings, declarations, enabledLayers, LayerIds.BACKGROUND,      null,                false, Setting.createImmutable(true));
-		declare(settings, declarations, enabledLayers, LayerIds.SLIME,           Dimension.OVERWORLD, false, settings.showSlimeChunks);
-		declare(settings, declarations, enabledLayers, LayerIds.GRID,            null,                true,  settings.showGrid);
-		declare(settings, declarations, enabledLayers, LayerIds.SPAWN,           Dimension.OVERWORLD, false, settings.showSpawn);
-		declare(settings, declarations, enabledLayers, LayerIds.STRONGHOLD,      Dimension.OVERWORLD, false, settings.showStrongholds);
-		declare(settings, declarations, enabledLayers, LayerIds.PLAYER,          null,                false, settings.showPlayers);
-		declare(settings, declarations, enabledLayers, LayerIds.VILLAGE,         Dimension.OVERWORLD, false, settings.showVillages);
-		declare(settings, declarations, enabledLayers, LayerIds.TEMPLE,          Dimension.OVERWORLD, false, settings.showTemples);
-		declare(settings, declarations, enabledLayers, LayerIds.MINESHAFT,       Dimension.OVERWORLD, false, settings.showMineshafts);
-		declare(settings, declarations, enabledLayers, LayerIds.OCEAN_MONUMENT,  Dimension.OVERWORLD, false, settings.showOceanMonuments);
-		declare(settings, declarations, enabledLayers, LayerIds.WOODLAND_MANSION,Dimension.OVERWORLD, false, settings.showWoodlandMansions);
-		declare(settings, declarations, enabledLayers, LayerIds.OCEAN_FEATURES,  Dimension.OVERWORLD, false, settings.showOceanFeatures);
-		declare(settings, declarations, enabledLayers, LayerIds.NETHER_FEATURES, Dimension.OVERWORLD, false, settings.showNetherFortresses);
-		declare(settings, declarations, enabledLayers, LayerIds.END_CITY,        Dimension.END,       false, settings.showEndCities);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_DESERT,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeDesert);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_FOREST,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeForest);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_ICE,     Dimension.OVERWORLD, false, settings.showGtnhRoguelikeIce);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_JUNGLE,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeJungle);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_MESA,    Dimension.OVERWORLD, false, settings.showGtnhRoguelikeMesa);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_MOUNTAIN,Dimension.OVERWORLD, false, settings.showGtnhRoguelikeMountain);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_PLAINS,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikePlains);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_SWAMP,   Dimension.OVERWORLD, false, settings.showGtnhRoguelikeSwamp);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_STRONGHOLD,         Dimension.OVERWORLD, false, settings.showGtnhStrongholds);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_VILLAGE,            Dimension.OVERWORLD, false, settings.showGtnhVillages);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_MINESHAFT,          Dimension.OVERWORLD, false, settings.showGtnhMineshafts);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_LOOTGAMES_DUNGEON,  Dimension.OVERWORLD, false, settings.showGtnhLootGamesDungeons);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_SLIME_ISLAND, Dimension.OVERWORLD, false, settings.showGtnhTinkersSlimeIslands);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON, Dimension.OVERWORLD, false, settings.showGtnhVanillaSpawnerDungeons);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_THAUMCRAFT_AURA_NODE, Dimension.OVERWORLD, false, settings.showGtnhThaumcraftAuraNodes);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_THAUMCRAFT_ELDRITCH_ALTAR, Dimension.OVERWORLD, false, settings.showGtnhThaumcraftEldritchAltars);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_AE2_METEORITE, Dimension.OVERWORLD, false, settings.showGtnhAe2Meteorites);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_WORLD_SPAWN, Dimension.OVERWORLD, false, settings.showGtnhWorldSpawn);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_NETHER_FORTRESS, Dimension.NETHER, false, settings.showNetherFortresses);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND, Dimension.NETHER, false, settings.showGtnhTinkersNetherSlimeIslands);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE, Dimension.NETHER, false, settings.showGtnhAutomagyNetherSpires);
+		declare(world, settings, declarations, enabledLayers, LayerIds.ALPHA,           null,                false, Setting.createImmutable(true));
+		declare(world, settings, declarations, enabledLayers, LayerIds.BIOME_DATA,      null,                false, Setting.createImmutable(true));
+		declare(world, settings, declarations, enabledLayers, LayerIds.END_ISLANDS,     Dimension.END,       false, Setting.createImmutable(true));
+		declare(world, settings, declarations, enabledLayers, LayerIds.BACKGROUND,      null,                false, Setting.createImmutable(true));
+		declare(world, settings, declarations, enabledLayers, LayerIds.SLIME,           Dimension.OVERWORLD, false, settings.showSlimeChunks);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GRID,            null,                true,  settings.showGrid);
+		declare(world, settings, declarations, enabledLayers, LayerIds.SPAWN,           Dimension.OVERWORLD, false, settings.showSpawn);
+		declare(world, settings, declarations, enabledLayers, LayerIds.STRONGHOLD,      Dimension.OVERWORLD, false, settings.showStrongholds);
+		declare(world, settings, declarations, enabledLayers, LayerIds.PLAYER,          null,                false, settings.showPlayers);
+		declare(world, settings, declarations, enabledLayers, LayerIds.VILLAGE,         Dimension.OVERWORLD, false, settings.showVillages);
+		declare(world, settings, declarations, enabledLayers, LayerIds.TEMPLE,          Dimension.OVERWORLD, false, settings.showTemples);
+		declare(world, settings, declarations, enabledLayers, LayerIds.MINESHAFT,       Dimension.OVERWORLD, false, settings.showMineshafts);
+		declare(world, settings, declarations, enabledLayers, LayerIds.OCEAN_MONUMENT,  Dimension.OVERWORLD, false, settings.showOceanMonuments);
+		declare(world, settings, declarations, enabledLayers, LayerIds.WOODLAND_MANSION,Dimension.OVERWORLD, false, settings.showWoodlandMansions);
+		declare(world, settings, declarations, enabledLayers, LayerIds.OCEAN_FEATURES,  Dimension.OVERWORLD, false, settings.showOceanFeatures);
+		declare(world, settings, declarations, enabledLayers, LayerIds.NETHER_FEATURES, Dimension.OVERWORLD, false, settings.showNetherFortresses);
+		declare(world, settings, declarations, enabledLayers, LayerIds.END_CITY,        Dimension.END,       false, settings.showEndCities);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_DESERT,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeDesert);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_FOREST,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeForest);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_ICE,     Dimension.OVERWORLD, false, settings.showGtnhRoguelikeIce);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_JUNGLE,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikeJungle);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_MESA,    Dimension.OVERWORLD, false, settings.showGtnhRoguelikeMesa);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_MOUNTAIN,Dimension.OVERWORLD, false, settings.showGtnhRoguelikeMountain);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_PLAINS,  Dimension.OVERWORLD, false, settings.showGtnhRoguelikePlains);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_ROGUELIKE_SWAMP,   Dimension.OVERWORLD, false, settings.showGtnhRoguelikeSwamp);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_STRONGHOLD,         Dimension.OVERWORLD, false, settings.showGtnhStrongholds);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_VILLAGE,            Dimension.OVERWORLD, false, settings.showGtnhVillages);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_MINESHAFT,          Dimension.OVERWORLD, false, settings.showGtnhMineshafts);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_LOOTGAMES_DUNGEON,  Dimension.OVERWORLD, false, settings.showGtnhLootGamesDungeons);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_SLIME_ISLAND, Dimension.OVERWORLD, false, settings.showGtnhTinkersSlimeIslands);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON, Dimension.OVERWORLD, false, settings.showGtnhVanillaSpawnerDungeons);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_THAUMCRAFT_AURA_NODE, Dimension.OVERWORLD, false, settings.showGtnhThaumcraftAuraNodes);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_THAUMCRAFT_ELDRITCH_ALTAR, Dimension.OVERWORLD, false, settings.showGtnhThaumcraftEldritchAltars);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_AE2_METEORITE, Dimension.OVERWORLD, false, settings.showGtnhAe2Meteorites);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_WORLD_SPAWN, Dimension.OVERWORLD, false, settings.showGtnhWorldSpawn);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_NETHER_FORTRESS, Dimension.NETHER, false, settings.showNetherFortresses);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_NETHER_SLIME_ISLAND, Dimension.NETHER, false, settings.showGtnhTinkersNetherSlimeIslands);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_AUTOMAGY_NETHER_SPIRE, Dimension.NETHER, false, settings.showGtnhAutomagyNetherSpires);
 		for (GtnhEndStructureType type : GtnhEndStructureType.values()) {
 			declare(
+                    world,
 					settings,
 					declarations,
 					enabledLayers,
@@ -140,11 +141,12 @@ public class LayerBuilder {
 					false,
 					settings.getShowGtnhEndStructure(type));
 		}
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_MOON_DUNGEON, Dimension.MOON, false, settings.showGtnhMoonDungeons);
-		declare(settings, declarations, enabledLayers, LayerIds.GTNH_MOON_VILLAGE, Dimension.MOON, false, settings.showGtnhMoonVillages);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_MOON_DUNGEON, Dimension.MOON, false, settings.showGtnhMoonDungeons);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_MOON_VILLAGE, Dimension.MOON, false, settings.showGtnhMoonVillages);
 		for (GtnhTwilightForestFeatureType type :
 				GtnhTwilightForestFeatureType.values()) {
 			declare(
+                    world,
 					settings,
 					declarations,
 					enabledLayers,
@@ -155,6 +157,7 @@ public class LayerBuilder {
 		}
 		for (GtnhSpaceStructureType type : GtnhSpaceStructureType.values()) {
 			declare(
+                    world,
 					settings,
 					declarations,
 					enabledLayers,
@@ -168,6 +171,7 @@ public class LayerBuilder {
 	}
 
 	private void declare(
+            World world,
 			AmidstSettings settings,
 			LayerDeclaration[] declarations,
 			List<Integer> enabledLayers,
@@ -182,7 +186,8 @@ public class LayerBuilder {
 				enabledLayers.contains(layerId),
                 new Setting<Boolean>() {
                     public Boolean get() {
-                        if (settings.dimension.get().isProspectingOnly()) return false;
+                        if (settings.dimension.get().isAdditional()
+                                && !world.getBiomeDataOracle(settings.dimension.get()).isPresent()) return false;
                         boolean structure = layerId != LayerIds.ALPHA && layerId != LayerIds.BIOME_DATA
                                 && layerId != LayerIds.BACKGROUND && layerId != LayerIds.END_ISLANDS
                                 && layerId != LayerIds.GRID && layerId != LayerIds.PLAYER;

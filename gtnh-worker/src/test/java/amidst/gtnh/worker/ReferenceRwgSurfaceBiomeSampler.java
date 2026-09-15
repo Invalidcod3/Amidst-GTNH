@@ -408,7 +408,7 @@ final class ReferenceRwgSurfaceBiomeSampler implements SurfaceBiomeSampler {
                 random);
     }
 
-    @Override
+    // Historical baseline only; the production sampler no longer exposes this heuristic.
     public boolean isLikelySpawnCoordinate(int x, int z) {
         BiomeGenBase biome = getBiomeAt(x, z);
         return biome != null && biome.topBlock == Blocks.grass;

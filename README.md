@@ -1,6 +1,6 @@
 # Amidst-GTNH
 
-当前正式版：**v0.3**。安装方法、主要更新与精度说明见 [v0.3 Release 说明](docs/release-v0.3.md)。
+当前正式版：**v0.3.1**
 
 这是面向 GTNH 的 Amidst 分支。主程序通过一个独立的Worker
 模组读取 GTNH 运行时注册信息，并显示主世界、下界、末地、
@@ -23,7 +23,7 @@
 
 ## 使用方法
 
-1. 将 `amidst-gtnh-worker-v0.3.jar` 放入 GTNH 的 `mods` 目录。
+1. 将 `amidst-gtnh-worker-v0.3.1.jar` 放入 GTNH 的 `mods` 目录。
 2. 启动 GTNH 到主菜单即可。Worker 首次生成的配置默认 `enabled=true`，
    当次启动即生效，无需为生成配置再重启一次。已有配置中主动设置的
    `enabled=false` 仍会保留；需要启用时请在启动前改为 `true`。
@@ -31,7 +31,7 @@
    的 `run-viewer.bat`，或使用：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.jar
+java -jar build/release/amidst-gtnh-biomes-v0.3.1.jar
 ```
 
 GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等参数，
@@ -45,7 +45,7 @@ GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等�
 原版 Amidst 的 Minecraft profile 模式只能通过命令行显式开启：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.jar -vanilla
+java -jar build/release/amidst-gtnh-biomes-v0.3.1.jar -vanilla
 ```
 
 `-profile`、`-mcjar`、`-mcjson` 需要与 `-vanilla` 一起使用。

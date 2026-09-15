@@ -5,6 +5,8 @@ plugins {
     application
 }
 
+apply(from = "gradle/verify-release-contract.gradle.kts")
+
 val metadata = Properties().apply {
     file("src/main/resources/amidst/metadata.properties").inputStream().use(::load)
 }
@@ -90,6 +92,7 @@ tasks.jar {
         attributes(
             "Main-Class" to application.mainClass.get(),
             "Amidst-Version" to distributionName,
+            "Amidst-Worker-Protocol" to metadata.getProperty("amidst.worker.protocol"),
         )
     }
     from({
@@ -105,6 +108,7 @@ tasks.jar {
 }
 
 val buildWorker by tasks.registering(Exec::class) {
+    dependsOn("verifyReleaseContract")
     group = "build"
     description = "Builds and stages the standalone, reobfuscated Forge 1.7.10 worker mod."
     workingDir = file("gtnh-worker")
@@ -142,7 +146,8 @@ val workerJar = layout.projectDirectory.file(
     "gtnh-worker/build/release/amidst-gtnh-worker.jar",
 )
 
-val assembleRelease by tasks.registering(Sync::class) {
+// Keep logs and earlier versioned JARs: this directory may also be used to run Viewer.
+val assembleRelease by tasks.registering(Copy::class) {
     group = "build"
     description = "Tests and packages matching Amidst and GTNH worker JARs."
     dependsOn(tasks.test, tasks.jar, buildWorker)

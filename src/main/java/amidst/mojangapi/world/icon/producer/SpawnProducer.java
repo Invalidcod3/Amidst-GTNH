@@ -19,6 +19,25 @@ public class SpawnProducer extends CachedWorldIconProducer {
 		this.oracle = oracle;
 	}
 
+    @Override public void produce(CoordinatesInWorld corner, java.util.function.Consumer<WorldIcon> consumer, Void data) {
+        if (!(oracle instanceof amidst.gtnh.worker.GtnhSpawnOracle)) { super.produce(corner, consumer, data); return; }
+        for (WorldIcon icon : getWorldIcons())
+            if (icon.getCoordinates().isInBoundsOf(corner, amidst.fragment.Fragment.SIZE)) consumer.accept(icon);
+    }
+
+    @Override public List<WorldIcon> getWorldIcons() {
+        if (oracle instanceof amidst.gtnh.worker.GtnhSpawnOracle spawn) {
+            WorldIcon icon = spawn.icon(DefaultWorldIconTypes.SPAWN.getImage());
+            return icon == null ? List.of() : List.of(icon);
+        }
+        return super.getWorldIcons();
+    }
+
+    @Override public WorldIcon getFirstWorldIcon() {
+        List<WorldIcon> icons = getWorldIcons();
+        return icons.isEmpty() ? null : icons.get(0);
+    }
+
 	@Override
 	protected List<WorldIcon> doCreateCache() {
 		return Arrays.asList(createSpawnWorldIcon());

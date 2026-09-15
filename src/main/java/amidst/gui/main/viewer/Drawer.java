@@ -196,7 +196,6 @@ public class Drawer {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawLayers() {
 		Dimension displayedDimension = dimensionSetting.get();
-        if (displayedDimension.isProspectingOnly()) return;
 		for (FragmentDrawer drawer : drawers) {
 			if (drawer.isEnabled()) {
 				initLayerMatrix();

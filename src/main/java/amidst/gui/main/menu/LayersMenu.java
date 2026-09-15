@@ -59,7 +59,7 @@ public class LayersMenu {
 	private void createMenu(Dimension selectedDimension) {
         var prospecting = viewerFacade.prospectingCatalog().stream()
                 .filter(d -> selectedDimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
-        if (prospecting != null && (selectedDimension.isProspectingOnly()
+        if (prospecting != null && (selectedDimension.isAdditional() && !viewerFacade.hasBiomeLayer(selectedDimension)
                 && settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.STRUCTURE
                 || settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.ORES && !prospecting.ores
                 || settings.markerMode.get() == amidst.gtnh.prospecting.MarkerMode.FLUID && !prospecting.fluids))
@@ -115,12 +115,12 @@ public class LayersMenu {
         if (!viewerFacade.prospectingCatalog().isEmpty()) {
             ButtonGroup group = new ButtonGroup();
             java.util.List<Dimension> all = new java.util.ArrayList<>(java.util.Arrays.asList(Dimension.values()));
-            all.sort(java.util.Comparator.comparing((Dimension d) -> d.isProspectingOnly()).thenComparing(Dimension::getDisplayName));
-            JMenu more = new JMenu("More dimensions (ores / fluids)");
+            all.sort(java.util.Comparator.comparing((Dimension d) -> d.isAdditional()).thenComparing(Dimension::getDisplayName));
+            JMenu more = new JMenu("More dimensions");
             for (Dimension d : all) {
                 var info = viewerFacade.prospectingCatalog().stream().filter(i -> i.key.equals(d.prospectingKey())).findFirst().orElse(null);
                 if (!amidst.gtnh.export.GtnhCoordinateType.hasContent(d, viewerFacade.prospectingCatalog())) continue;
-                var item = Menus.radio(d.isProspectingOnly() ? more : dimensionMenu, dimensionSetting, group, d,
+                var item = Menus.radio(d.isAdditional() ? more : dimensionMenu, dimensionSetting, group, d,
                         amidst.gtnh.prospecting.ProspectingOverlay.menuIcon(info));
                 if (info != null) item.setToolTipText((info.ores ? "Ores" : "")
                         + (info.ores && info.fluids ? " / " : "") + (info.fluids ? "Fluid" : ""));
@@ -463,7 +463,7 @@ public class LayersMenu {
             var item = Menus.radio(markers, modeSetting, group, mode, getIcon(icon));
             var info = viewerFacade.prospectingCatalog().stream()
                     .filter(d -> dimensionSetting.get().prospectingKey().equals(d.key)).findFirst().orElse(null);
-            item.setEnabled(mode == amidst.gtnh.prospecting.MarkerMode.STRUCTURE ? !dimensionSetting.get().isProspectingOnly()
+            item.setEnabled(mode == amidst.gtnh.prospecting.MarkerMode.STRUCTURE ? (!dimensionSetting.get().isAdditional() || viewerFacade.hasBiomeLayer(dimensionSetting.get()))
                     : info != null && (mode == amidst.gtnh.prospecting.MarkerMode.ORES ? info.ores : info.fluids));
         }
         menu.add(markers);

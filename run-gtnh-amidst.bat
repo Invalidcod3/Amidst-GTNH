@@ -23,6 +23,4 @@ if defined AMIDST_JAVA_HOME (
 
 "%JAVA_COMMAND%" -jar "%AMIDST_JAR%" %*
 set "VIEWER_EXIT_CODE=%ERRORLEVEL%"
-rem With no arguments this is the double-click launcher: keep its output visible.
-if "%~1"=="" pause
 exit /b %VIEWER_EXIT_CODE%

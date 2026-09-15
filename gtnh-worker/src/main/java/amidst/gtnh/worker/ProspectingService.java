@@ -15,7 +15,8 @@ final class ProspectingService {
     private final Map<Integer, Object> definitions = new HashMap<>();
     private final Map<Integer, Object> fluidDefinitions = new HashMap<>();
     private final Map<Integer, String> names = new HashMap<>();
-    private final Map<Integer, Object> queries = new HashMap<>();
+    private final Map<String, Object> queries = new HashMap<>();
+    private final AsteroidProspecting asteroids = new AsteroidProspecting();
     private final Map<String, String> icons = new HashMap<>();
     private List<DimensionInfo> dimensions;
 
@@ -40,9 +41,17 @@ final class ProspectingService {
                     for (Object value : defs.getEnumConstants()) {
                         if (def != null && field(value, "modDimensionDef") == def) d.key = ((Enum<?>) value).name();
                     }
-                    d.oreOptions = oreOptions(name);
+                    d.oreOptions = new ArrayList<>();
+                    if (def != null) {
+                        if ((Boolean) call(def, "generatesOre")) d.oreOptions.addAll(oreOptions(name));
+                        if ((Boolean) call(def, "generatesAsteroids")) {
+                            d.oreOptions.addAll(asteroids.options(AsteroidProspecting.isEnd(def)
+                                    ? AsteroidProspecting.endAsteroids() : def));
+                        }
+                    }
                     d.fluidOptions = fluidOptions(fluidDim);
                     d.ores = def != null && !d.oreOptions.isEmpty();
+                    d.biomes = AdditionalDimensionBiomes.supports(d.key);
                     d.fluids = !d.fluidOptions.isEmpty();
                     if (!d.ores && !d.fluids) continue;
                     // An unavailable texture must not remove an otherwise valid world from the menu.
@@ -108,6 +117,7 @@ final class ProspectingService {
         final boolean fluids;
         final QueryFilter filter;
         final WorldServer context;
+        final WorldServer dimensionContext;
         final Tile result = new Tile();
         int x, z;
         Job(long seed, int dimension, int bx, int bz, int width, int height, boolean fluids, QueryFilter filter) {
@@ -120,12 +130,15 @@ final class ProspectingService {
             endZ = Math.floorDiv(bz + height - 1, 16 * stride) * stride;
             x = minX; z = minZ;
             context = DimensionManager.getWorld(0);
+            dimensionContext = DimensionManager.getWorld(dimension);
             result.deposits = new ArrayList<>();
             result.message = fluids ? "Initial production; recorded chunks show current production (L/Op)"
                     : "Seed candidates; Visual Prospecting records override predictions";
         }
         boolean advance(long deadline) {
             if (DimensionManager.getWorld(0) != context) throw new IllegalStateException("World changed during prospecting");
+            if (DimensionManager.getWorld(dimension) != dimensionContext)
+                throw new IllegalStateException("World changed during prospecting");
             try {
                 do {
                     Deposit d = fluids ? fluid(seed, dimension, x, z, filter) : ore(seed, dimension, x, z, filter);
@@ -139,10 +152,23 @@ final class ProspectingService {
     }
 
     private Deposit ore(long seed, int dim, int cx, int cz, QueryFilter filter) throws ReflectiveOperationException {
+        return ore(seed,dim,cx,cz,filter,true);
+    }
+    private Deposit ore(long seed, int dim, int cx, int cz, QueryFilter filter, boolean useRecords) throws ReflectiveOperationException {
+        Object base = definitions.get(dim);
+        Object definition = AsteroidProspecting.effectiveDefinition(seed, dim, base, cx, cz);
+        if (definition == null) return null;
+        if (!(Boolean) call(definition, "generatesOre")) {
+            if (base != definition && !(Boolean) call(base, "generatesAsteroids")) return null;
+            // Asteroids have their own per-chunk RNG and no ordinary VP vein record.
+            // Do not gate them on isOreChunk or assign the chunk-center/vein height.
+            if (filter != null && filter.recordedOnly) return null;
+            return asteroids.predict(seed, dim, cx, cz, definition);
+        }
         if (!(Boolean) call(type("gregtech.common.GTWorldgenerator"), "isOreChunk", cx, cz)) return null;
         Object position = null;
         WorldServer world = DimensionManager.getWorld(0);
-        if (world != null && world.getWorldInfo().getSeed() == seed) {
+        if (useRecords && world != null && world.getWorldInfo().getSeed() == seed) {
             Object cache = field(type(VP + "database.ServerCache"), "instance");
             position = call(cache, "getOreVein", dim, cx, cz);
             if (position == field(type(VP + "database.OreVeinPosition"), "EMPTY_VEIN")) position = null;
@@ -154,14 +180,13 @@ final class ProspectingService {
             vein = field(position, "veinType");
             if (vein == field(type(VP + "database.veintypes.VeinType"), "NO_VEIN")) return null;
         } else {
-            Object definition = definitions.get(dim);
-            if (definition == null) return null;
             long oreSeed = seed << 16 ^ ((dim & 255L) << 56 | (cx & 0xfffffffL) << 28 | cz & 0xfffffffL);
             if (new GtnhXstrRandom(oreSeed).nextInt(100) >= (Integer) call(definition, "getOreVeinChance")) return null;
-            Object query = queries.get(dim);
+            String dimensionName = (String) call(definition, "getDimensionName");
+            Object query = queries.get(dimensionName);
             if (query == null) {
-                query = call(call(type("gregtech.common.worldgen.WorldgenQuery"), "veins"), "inDimension", names.get(dim));
-                queries.put(dim, query);
+                query = call(call(type("gregtech.common.worldgen.WorldgenQuery"), "veins"), "inDimension", dimensionName);
+                queries.put(dimensionName, query);
             }
             Object layer = call(query, "findRandom", new GtnhXstrRandom(selectionSeed(oreSeed)));
             if (layer == null) return null;
@@ -192,6 +217,34 @@ final class ProspectingService {
             icons.put(key, d.icon);
         }
         return d;
+    }
+
+    void verifyOre(long seed,int dim,int cx,int cz,amidst.gtnh.validation.AccuracyReport report) {
+        catalog();
+        try {
+            Object definition = AsteroidProspecting.effectiveDefinition(seed, dim, definitions.get(dim), cx, cz);
+            if (definition != null && !(Boolean) call(definition, "generatesOre")) {
+                Deposit predicted = ore(seed, dim, cx, cz, null, false);
+                if (predicted != null) report.add("ASTEROID", predicted.x, predicted.z, predicted.id, "", "UNVERIFIED",
+                        "Asteroid candidate; ordinary Visual Prospecting vein records cannot verify asteroid geometry or small ores");
+                return;
+            }
+            if (!(Boolean) call(type("gregtech.common.GTWorldgenerator"), "isOreChunk",cx,cz))return;
+            if(!definitions.containsKey(dim)) {
+                report.add("ORE",cx*16+8,cz*16+8,"","","UNVERIFIED","No ore prediction registry for this dimension");return;
+            }
+            Deposit prediction=ore(seed,dim,cx,cz,new QueryFilter(),false);
+            String predicted=prediction==null?"NO_VEIN":prediction.id;
+            Object cache=field(type(VP+"database.ServerCache"),"instance");
+            Object position=call(cache,"getOreVein",dim,cx,cz);
+            if(position==null || position==field(type(VP+"database.OreVeinPosition"),"EMPTY_VEIN")) {
+                report.add("ORE",cx*16+8,cz*16+8,predicted,"","UNVERIFIED","No Visual Prospecting generation record");return;
+            }
+            Object vein=field(position,"veinType");
+            String actual=vein==field(type(VP+"database.veintypes.VeinType"),"NO_VEIN")?"NO_VEIN":(String)field(vein,"name");
+            report.add("ORE",cx*16+8,cz*16+8,predicted,actual,predicted.equals(actual)?"MATCH":"MISMATCH",
+                    "Independent seed prediction vs Visual Prospecting record; compares vein type and center, not individual ore blocks");
+        } catch(ReflectiveOperationException e) { throw failure(e); }
     }
 
     static long selectionSeed(long oreSeed) {
@@ -252,7 +305,7 @@ final class ProspectingService {
     private static Object oilConfig() throws ReflectiveOperationException {
         return field(field(type("gregtech.GTMod"), "proxy"), "mUndergroundOil");
     }
-    private static String clean(String text) { return text.replaceAll("\u00a7.", ""); }
+    static String clean(String text) { return text.replaceAll("\u00a7.", ""); }
     private static IllegalStateException failure(Exception e) {
         return new IllegalStateException("GTNH prospecting API is unavailable: " + e, e);
     }

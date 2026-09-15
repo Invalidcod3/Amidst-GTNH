@@ -5,6 +5,8 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
+apply(from = "../gradle/verify-release-contract.gradle.kts")
+
 val releaseMetadata = Properties().apply {
     file("../src/main/resources/amidst/metadata.properties").inputStream().use(::load)
 }
@@ -20,7 +22,8 @@ for (archiveTask in listOf("jar", "reobfJar")) {
         manifest.attributes(
             "FMLCorePlugin" to "amidst.gtnh.worker.core.WorkerLoadingPlugin",
             "FMLCorePluginContainsFMLMod" to "true",
-            "Implementation-Version" to project.version.toString()
+            "Implementation-Version" to project.version.toString(),
+            "Amidst-Worker-Protocol" to releaseMetadata.getProperty("amidst.worker.protocol")
         )
     }
 }

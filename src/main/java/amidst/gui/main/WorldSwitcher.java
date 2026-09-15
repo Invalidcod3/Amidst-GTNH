@@ -153,6 +153,7 @@ public class WorldSwitcher {
 		mainWindow.getMenuBar().set(viewerFacade);
 		frame.validate();
 		viewerFacade.loadPlayers();
+        viewerFacade.startViewRecovery();
 		threadMaster.setOnRepaintTick(viewerFacade.getOnRepainterTick());
 		threadMaster.setOnFragmentLoadTick(viewerFacade.getOnFragmentLoaderTick());
 		mainWindow.setViewerFacade(viewerFacade);

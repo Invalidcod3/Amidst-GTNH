@@ -15,7 +15,7 @@ import net.minecraft.launchwrapper.IClassTransformer;
 /**
  * One narrowly scoped 1.7.10 patch: drain Worker requests after the integrated
  * server's tick, including its paused path. The original pause/save/world-tick
- * logic is untouched. See docs/worker-troubleshooting.md before changing this.
+ * logic is untouched. See docs/archive/worker-troubleshooting.md before changing this.
  */
 public final class IntegratedServerTickTransformer implements IClassTransformer {
     private static final Logger LOG = LogManager.getLogger("amidstgtnhworker-core");
@@ -79,7 +79,7 @@ public final class IntegratedServerTickTransformer implements IClassTransformer 
             // another coremod has replaced the method with an unsupported shape.
             LOG.error("Cannot install paused-world Worker hook; ESC prediction may stall. "
                     + "Ordinary Forge tick processing remains available. "
-                    + "See docs/worker-troubleshooting.md.", failure);
+                    + "See docs/archive/worker-troubleshooting.md.", failure);
             return basicClass;
         }
     }

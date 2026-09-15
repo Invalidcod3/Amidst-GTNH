@@ -13,6 +13,8 @@ import javax.swing.*;
 import amidst.AmidstSettings;
 import amidst.i18n.I18n;
 import amidst.gtnh.prospecting.ProspectingData.*;
+import amidst.gtnh.export.GtnhMapWaypoint;
+import java.util.function.Consumer;
 import amidst.gui.main.viewer.FragmentGraphToScreenTranslator;
 import amidst.gui.main.viewer.Zoom;
 import amidst.mojangapi.world.Dimension;
@@ -23,6 +25,10 @@ import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 public final class ProspectingOverlay implements AutoCloseable {
     interface DataSource {
         List<DimensionInfo> dimensions();
+        default boolean hasBiomes(Dimension dimension) {
+            return !dimension.isAdditional() || dimensions().stream()
+                    .anyMatch(info -> info.biomes && dimension.prospectingKey().equals(info.key));
+        }
         Tile load(Dimension dimension, int x, int z, String mode) throws Exception;
     }
     private record Key(Dimension dimension, MarkerMode mode, int x, int z) {}
@@ -49,10 +55,14 @@ public final class ProspectingOverlay implements AutoCloseable {
     private Dimension displayedDimension;
     private MarkerMode displayedMode;
     private long generation;
+    private Consumer<GtnhMapWaypoint> onDoubleClick = waypoint -> {};
+
+    public void setOnDoubleClick(Consumer<GtnhMapWaypoint> handler) { onDoubleClick = handler; }
 
     public ProspectingOverlay(World world, AmidstSettings settings, FragmentGraphToScreenTranslator translator, Zoom zoom) {
         this(new DataSource() {
             public List<DimensionInfo> dimensions() { return world.prospectingCatalog(); }
+            public boolean hasBiomes(Dimension d) { return world.getBiomeDataOracle(d).isPresent(); }
             public Tile load(Dimension d, int x, int z, String mode) throws Exception { return world.prospect(d, x, z, 256, 256, mode); }
         }, settings, translator, zoom);
     }
@@ -88,8 +98,8 @@ public final class ProspectingOverlay implements AutoCloseable {
             g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-            if (mode == MarkerMode.FLUID || dimension.isProspectingOnly()) {
-                g.setColor(dimension.isProspectingOnly() ? new Color(26, 29, 33) : new Color(0, 0, 0, 135));
+            if (mode == MarkerMode.FLUID || !source.hasBiomes(dimension)) {
+                g.setColor(!source.hasBiomes(dimension) ? new Color(26, 29, 33) : new Color(0, 0, 0, 135));
                 g.fillRect(0, 0, width, height);
             }
             DimensionInfo info = dimensionInfo(dimension);
@@ -140,7 +150,7 @@ public final class ProspectingOverlay implements AutoCloseable {
             if (mode == MarkerMode.FLUID && settings.prospectingMinimumFluid.get() > 0)
                 status += " · " + I18n.text("minimum") + ": " + settings.prospectingMinimumFluid.get() + " L/Op";
             label(g, status, 15, height - 48);
-            if (dimension.isProspectingOnly()) label(g, "Prospecting map · biome background unavailable in this dimension", 15, height - 68);
+            if (!source.hasBiomes(dimension)) label(g, "Prospecting map · biome background unavailable in this dimension", 15, height - 68);
             if (mouse != null) {
                 Hit hit = hit(mouse);
                 if (hit != null) tooltip(g, hit.deposit, mouse, width, height);
@@ -174,10 +184,15 @@ public final class ProspectingOverlay implements AutoCloseable {
         if (p.x < -size || p.y < -size || p.x > width + size || p.y > height + size) return;
         BufferedImage image = images.computeIfAbsent(d.icon == null ? "" : d.icon, ProspectingOverlay::decode);
         if (image != null) g.drawImage(image, p.x - size / 2, p.y - size / 2, size, size, null);
-        else { g.setColor(new Color(d.color)); g.fillRect(p.x - size / 2, p.y - size / 2, size, size); }
+        else {
+            g.setColor(new Color(d.color));
+            if (d.y != null) g.fillOval(p.x - size / 2, p.y - size / 2, size, size);
+            else g.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+        }
         g.setColor("RECORDED".equals(d.source) ? new Color(120, 255, 180) : new Color(230, 230, 230, 150));
         g.setStroke("RECORDED".equals(d.source) ? new BasicStroke(1) : new BasicStroke(1, 0, 0, 1, new float[]{2, 2}, 0));
-        g.drawRect(p.x - size / 2, p.y - size / 2, size, size);
+        if (d.y != null) g.drawOval(p.x - size / 2, p.y - size / 2, size, size);
+        else g.drawRect(p.x - size / 2, p.y - size / 2, size, size);
         g.setStroke(new BasicStroke(1));
         hits.add(new Hit(new Rectangle(p.x - size / 2, p.y - size / 2, size, size), d));
         if (zoom.worldToScreen(48) >= 95) label(g, d.name, p.x - g.getFontMetrics().stringWidth(d.name) / 2, p.y + size / 2 + 15);
@@ -235,7 +250,14 @@ public final class ProspectingOverlay implements AutoCloseable {
         long selectedX = d.amounts == null ? d.x : Math.floorDiv(hovered.getX(), 16) * 16 + 8;
         long selectedZ = d.amounts == null ? d.z : Math.floorDiv(hovered.getY(), 16) * 16 + 8;
         lines.add("X: " + selectedX + "   Z: " + selectedZ + "   · " + I18n.text(d.source));
-        if (d.amounts == null) { lines.add("Y: " + d.minY + "–" + d.maxY); lines.add(d.materials); }
+        if (d.amounts == null) {
+            if (d.y != null) {
+                lines.add(ProspectingLabels.kind(d.kind) + " · " + I18n.text("Asteroid center Y") + ": " + d.y);
+                lines.add(I18n.text("Possible vertical extent") + ": " + d.minY + "–" + d.maxY);
+                lines.add(I18n.text("Seed candidate; actual ore blocks depend on placement"));
+            } else lines.add("Y: " + d.minY + "–" + d.maxY);
+            lines.add(d.materials);
+        }
         else if (zoom.worldToScreen(16) >= 58) {
             var point = translator.screenToWorld(mouse);
             int x = Math.floorDiv((int)point.getX() - d.x, 16), z = Math.floorDiv((int)point.getY() - d.z, 16);
@@ -245,6 +267,7 @@ public final class ProspectingOverlay implements AutoCloseable {
             }
         }
         lines.add("Click to copy coordinates");
+        if (settings.autoImportJourneyMap.get()) lines.add(I18n.text("Double-click markers to add to JourneyMap"));
         int boxWidth = lines.stream().filter(Objects::nonNull).mapToInt(s -> g.getFontMetrics().stringWidth(s)).max().orElse(100) + 16;
         int x = Math.max(0, Math.min(mouse.x + 18, width - boxWidth));
         int y = Math.max(20, Math.min(mouse.y + 20, height - lines.size() * 18 - 10));
@@ -269,14 +292,20 @@ public final class ProspectingOverlay implements AutoCloseable {
     }
     public boolean click(MouseEvent event) {
         if (!active()) return false;
+        if (closed || displayedDimension != settings.dimension.get() || displayedMode != settings.markerMode.get()
+                || event.getButton() != MouseEvent.BUTTON1) return true;
         Hit hit = hit(event.getPoint());
         if (hit != null) {
             Deposit d = hit.deposit;
             var point = translator.screenToWorld(event.getPoint());
             long x = d.amounts == null ? d.x : Math.floorDiv(point.getX(), 16) * 16 + 8;
             long z = d.amounts == null ? d.z : Math.floorDiv(point.getY(), 16) * 16 + 8;
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(
-                    d.name + " | " + settings.dimension.get() + " | X=" + x + " Z=" + z + " | " + d.source), null);
+            if (event.getClickCount() == 2 && settings.autoImportJourneyMap.get()) {
+                onDoubleClick.accept(GtnhMapWaypoint.deposit(displayedDimension, d, point));
+            } else {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(
+                        d.name + " | " + settings.dimension.get() + " | X=" + x + " Z=" + z + " | " + d.source), null);
+            }
         }
         return true;
     }
@@ -286,6 +315,7 @@ public final class ProspectingOverlay implements AutoCloseable {
         g.setColor(Color.WHITE); g.drawString(text, x, y);
     }
     public void refresh() {
+        hits.clear();
         generation++; tiles.clear(); retryAfter = 0; error = "";
         if (pending != null) pending.cancel(true);
         pending = null;
