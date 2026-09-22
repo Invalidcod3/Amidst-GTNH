@@ -1,6 +1,6 @@
 # v39：Structure / Ores / Fluid 探矿图层
 
-> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[发布说明](../release-v0.3.1.md)。
+> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[当前文档](../README.md)。
 
 后续更新已补齐额外维度的群系底图，见 [更多维度群系说明](../reference/additional-dimension-biomes.md)。下文保留 v39 的原始行为记录。
 

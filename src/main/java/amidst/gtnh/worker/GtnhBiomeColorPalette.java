@@ -36,6 +36,17 @@ public final class GtnhBiomeColorPalette {
 		String name = biome.name().toLowerCase(Locale.ROOT);
 		int variation = Math.floorMod(biome.id() * 17, 13) - 6;
 
+		// Shared with the ChunkbaseNH palette; keep exact colors across registry IDs.
+		BiomeColor sharedColor = switch (name) {
+			case "shield" -> color(0x214E3A, 0);
+			case "lush swamp" -> color(0x39998B, 0);
+			case "bayou" -> color(0x68B02D, 0);
+			default -> null;
+		};
+		if (sharedColor != null) {
+			return sharedColor;
+		}
+
 		BiomeColor gtnhEndColor = gtnhEndColor(name);
 		if (gtnhEndColor != null) {
 			return gtnhEndColor;

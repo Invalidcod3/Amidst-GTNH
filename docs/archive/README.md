@@ -11,6 +11,8 @@
 
 ## 旧发布与版本迭代
 
+- [Amidst-GTNH v0.3.1](release-v0.3.1.md)
+
 - [v35：刷新黑块与群系预测性能](gtnh-v35-performance.md)
 - [v36：按群系依赖选择精算，按时间预算续算](gtnh-v36-adaptive.md)
 - [v36 实际 GTNH / Viewer JFR 性能诊断](gtnh-v36-jfr-findings.md)

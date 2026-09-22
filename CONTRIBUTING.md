@@ -2,7 +2,7 @@
 
 本项目由游戏外的 Java 17 Viewer 和游戏内的 Forge 1.7.10 Worker 组成。
 先读本文了解改动边界，再按 [BUILDING.md](BUILDING.md) 构建。
-当前用户行为见 [v0.3.1 发布说明](docs/release-v0.3.1.md)，历次算法调查见 [文档索引](docs/README.md)。
+当前用户行为见 [v0.3.2 发布说明](docs/release-v0.3.2.md)，历次算法调查见 [文档索引](docs/README.md)。
 
 ## 源码导航
 
@@ -71,7 +71,7 @@ Worker `@Mod` 版本及 Viewer 显示版本。`check`、`jar` 和配套发布构
 发布时修改 `src/main/resources/amidst/metadata.properties` 中的发行版本、文件名和显示后缀，
 以及 `AmidstGtnhBiomeWorkerMod.java` 中的 `@Mod` 版本。
 协议变更还需更新 metadata 的 `amidst.worker.protocol` 与两端 `PROTOCOL_VERSION`。
-协议号与发行版本相互独立；当前 v0.3.1 使用协议 25，以 metadata 和构建检查为准。
+协议号与发行版本相互独立；当前 v0.3.2 使用协议 25，以 metadata 和构建检查为准。
 
 ## 代码风格
 
@@ -119,7 +119,7 @@ Viewer 的 10 个 `DevToolRunner` 项是默认禁用的开发工具，不是产�
 ### 文档维护
 
 当前入口保持精简：`README.md` 用于快速安装，`docs/usage.md` 用于操作，
-`docs/release-v0.3.1.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
+`docs/release-v0.3.2.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
 同版本变更直接合并到这些文档；算法依据放 `docs/reference/`，历史测量和旧补丁记录放 `docs/archive/`。
 移动文档后核对 Markdown 相对链接、源码注释中的路径及随包安装说明，不能仅修改文档索引。
 

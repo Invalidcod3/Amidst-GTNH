@@ -68,8 +68,8 @@ The Amidst release filename is controlled by
 `src/main/resources/amidst/metadata.properties`. A filename ending in `-vNN`
 or `-v0.3` produces the matching worker filename, such as
 `amidst-gtnh-worker-v0.3.jar`. `amidst.release.version` controls both Gradle
-project versions. For v0.3.1 use `amidst-gtnh-biomes-v0.3.1`, release version
-`0.3.1`, and display suffix `gtnh-biomes-0.3.1`. Keep the worker's `@Mod`
+project versions. For v0.3.2 use `amidst-gtnh-biomes-v0.3.2`, release version
+`0.3.2`, and display suffix `gtnh-biomes-0.3.2`. Keep the worker's `@Mod`
 version in sync with it.
 The Viewer retains the upstream Amidst version and appends the GTNH release
 version in `amidst.version.preReleaseSuffix`.
@@ -78,17 +78,17 @@ After `assembleRelease`, package the release from the repository root using
 PowerShell 7:
 
 ```powershell
-./tools/Package-Release.ps1 -PackageSuffix rebuild-20260915
+./tools/Package-Release.ps1
 ```
 
-This creates `Amidst-GTNH-v0.3.1-rebuild-20260915.zip`, its matching source ZIP,
+This creates `Amidst-GTNH-v0.3.2.zip`, its matching source ZIP,
 installation instructions, source manifest and SHA-256
 checksums under `build/`. It checks test reports, JAR versions and ZIP contents.
-Release notes are maintained in `docs/release-v0.3.1.md`. The source ZIP contains
+Release notes are maintained in `docs/release-v0.3.2.md`. The source ZIP contains
 the current working tree, including uncommitted, non-ignored files. Review
 `git status` before packaging. Existing package outputs are never overwritten.
 For later rebuilds choose a new descriptive suffix and update the current release
-notes. The JAR release version stays 0.3.1; the suffix identifies the archive only.
+notes. The JAR release version stays 0.3.2; the suffix identifies the archive only.
 The staging directory retains older versioned JARs and logs; packaging selects
 only the current version. No Git tag or remote
 release is created by this script.

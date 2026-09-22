@@ -1,6 +1,6 @@
 # v40：探矿下拉选择和流体最低产出筛选
 
-> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[发布说明](../release-v0.3.1.md)。
+> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[当前文档](../README.md)。
 
 更新配套 Viewer 与 Worker 后，打开 `Layers → Markers → Ores / Fluid`，
 再选择 `Filter Ores / Filter Fluid`。

@@ -1,6 +1,6 @@
 # v36 实际 GTNH / Viewer JFR 性能诊断
 
-> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[发布说明](../release-v0.3.1.md)。
+> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[当前文档](../README.md)。
 
 2026-09-08，GTNH 2.9.0-beta-3，主世界种子 `2777967236474336022`。已安装 Worker 与本地 v36 发布 JAR 的 SHA-256 一致：`2e94b62010b00af03970f8720580a830d46b620edae5d15ac22a15b63f57541a`。Viewer 运行的是 `build/test-v0.2-v36/amidst-gtnh-biomes-v0-2-v36.jar`。
 
