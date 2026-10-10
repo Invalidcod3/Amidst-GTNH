@@ -44,3 +44,6 @@ gtnh-worker/src/main/java/amidst/gtnh/worker/RwgChunkBiomeReplay.java
 gtnh-worker/src/test/java/amidst/gtnh/worker/RwgChunkBiomeReplayTest.java
 gtnh-worker/src/main/java/amidst/gtnh/worker/SurfaceBiomeSampler.java
 gtnh-worker/src/test/java/amidst/gtnh/worker/SpawnSearchCacheTest.java
+gtnh-worker/src/main/java/amidst/gtnh/worker/VillageGenerationRules.java
+gtnh-worker/src/test/java/amidst/gtnh/worker/VillageGenerationRulesTest.java
+gtnh-worker/tools/AuditVillageSelectors.java

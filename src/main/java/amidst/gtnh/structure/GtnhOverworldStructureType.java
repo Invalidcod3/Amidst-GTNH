@@ -10,7 +10,7 @@ public enum GtnhOverworldStructureType {
 			"GTNH World Spawn",
 			"spawn.png",
 			DefaultWorldIconTypes.SPAWN),
-	STRONGHOLD("STRONGHOLD", "GTNH Stronghold", "stronghold.png", DefaultWorldIconTypes.STRONGHOLD),
+	STRONGHOLD("STRONGHOLD", "GTNH Stronghold", "ender_eye.png"),
 	VILLAGE("VILLAGE", "Possible GTNH Village", "village.png", DefaultWorldIconTypes.VILLAGE),
 	MINESHAFT("MINESHAFT", "Possible GTNH Mineshaft", "mineshaft.png", DefaultWorldIconTypes.MINESHAFT),
 	LOOTGAMES_DUNGEON(

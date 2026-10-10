@@ -13,8 +13,6 @@ import java.util.Random;
  */
 final class RwgStructurePredictor {
 
-    private static final int VILLAGE_DISTANCE = 24;
-    private static final int VILLAGE_SEPARATION = 8;
     private static final int VILLAGE_SALT = 10387312;
 
     List<RoguelikeDungeonPredictor.StructureDescriptor> predict(
@@ -24,12 +22,19 @@ final class RwgStructurePredictor {
             int width,
             int height,
             SurfaceBiomeSampler sampler) {
+        return predict(seed, minX, minZ, width, height, sampler, false);
+    }
+
+    List<RoguelikeDungeonPredictor.StructureDescriptor> predict(
+            long seed, int minX, int minZ, int width, int height,
+            SurfaceBiomeSampler sampler, boolean independentBiomes) {
         long maxX = (long) minX + width;
         long maxZ = (long) minZ + height;
         List<RoguelikeDungeonPredictor.StructureDescriptor> result =
                 new ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
         if (getRwgFlag("generateVillages")) {
-            addVillages(seed, minX, minZ, maxX, maxZ, sampler, result);
+            addVillages(seed, minX, minZ, maxX, maxZ, sampler,
+                    VillageGenerationRules.read(sampler.getVillageGenerator()), independentBiomes, result);
         }
         if (getRwgFlag("generateMineshafts")) {
             addMineshafts(seed, minX, minZ, maxX, maxZ, result);
@@ -38,34 +43,36 @@ final class RwgStructurePredictor {
         return result;
     }
 
-    private static void addVillages(
+    static void addVillages(
             long seed,
             int minX,
             int minZ,
             long maxX,
             long maxZ,
             SurfaceBiomeSampler sampler,
+            VillageGenerationRules rules,
+            boolean independentBiomes,
             List<RoguelikeDungeonPredictor.StructureDescriptor> result) {
         int minChunkX = floorDiv((long) minX - 4L, 16);
         int maxChunkX = floorDiv(maxX - 1L - 4L, 16);
         int minChunkZ = floorDiv((long) minZ - 4L, 16);
         int maxChunkZ = floorDiv(maxZ - 1L - 4L, 16);
-        int minRegionX = Math.floorDiv(minChunkX, VILLAGE_DISTANCE);
-        int maxRegionX = Math.floorDiv(maxChunkX, VILLAGE_DISTANCE);
-        int minRegionZ = Math.floorDiv(minChunkZ, VILLAGE_DISTANCE);
-        int maxRegionZ = Math.floorDiv(maxChunkZ, VILLAGE_DISTANCE);
+        int minRegionX = Math.floorDiv(minChunkX, rules.distance);
+        int maxRegionX = Math.floorDiv(maxChunkX, rules.distance);
+        int minRegionZ = Math.floorDiv(minChunkZ, rules.distance);
+        int maxRegionZ = Math.floorDiv(maxChunkZ, rules.distance);
 
         for (int regionZ = minRegionZ; regionZ <= maxRegionZ; regionZ++) {
             for (int regionX = minRegionX; regionX <= maxRegionX; regionX++) {
                 Random random = seededRandom(seed, regionX, regionZ, VILLAGE_SALT);
-                int chunkX = regionX * VILLAGE_DISTANCE
-                        + random.nextInt(VILLAGE_DISTANCE - VILLAGE_SEPARATION);
-                int chunkZ = regionZ * VILLAGE_DISTANCE
-                        + random.nextInt(VILLAGE_DISTANCE - VILLAGE_SEPARATION);
+                int chunkX = regionX * rules.distance
+                        + random.nextInt(rules.distance - rules.separation);
+                int chunkZ = regionZ * rules.distance
+                        + random.nextInt(rules.distance - rules.separation);
                 int x = chunkX * 16 + 4;
                 int z = chunkZ * 16 + 4;
                 if (inside(x, z, minX, minZ, maxX, maxZ)
-                        && sampler.isVillageLocationViable(chunkX * 16 + 8, chunkZ * 16 + 8)) {
+                        && rules.accepts(chunkX, chunkZ, sampler, independentBiomes)) {
                     result.add(descriptor("VILLAGE", x, z, "POSSIBLE"));
                 }
             }

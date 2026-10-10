@@ -1,8 +1,8 @@
 # Amidst GTNH Worker
 
-Standalone Forge 1.7.10 mod, release **0.3.1**, protocol **25**.
+Standalone Forge 1.7.10 mod, release **0.3.2**, protocol **25**.
 Install it with the matching Viewer and restart Minecraft. Current behavior and
-compatibility are documented in the [release notes](../docs/release-v0.3.1.md).
+compatibility are documented in the [release notes](../docs/release-v0.3.2.md).
 
 ## Responsibilities
 

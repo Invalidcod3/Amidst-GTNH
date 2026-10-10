@@ -39,6 +39,12 @@ interface SurfaceBiomeSampler {
 
     boolean isVillageLocationViable(int x, int z);
 
+    /** The final Forge-selected generator; reading it must not prepare structures or chunks. */
+    default Object getVillageGenerator() {
+        throw new UnsupportedOperationException(
+                "Village generator is unavailable for this sampler");
+    }
+
     float getApproximateSurfaceHeight(int x, int z);
 
     ChunkPosition findSpawnBiomePosition(Random random);

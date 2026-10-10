@@ -1,6 +1,6 @@
 # GTNH Galacticraft Moon map
 
-> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[发布说明](../release-v0.3.1.md)。
+> 历史记录：安装要求、协议号及验证结论属于当时版本。当前状态见[当前文档](../README.md)。
 
 The GTNH worker exposes Galacticraft's Moon as a dedicated AMIDST dimension.
 The protocol handshake carries the runtime value of

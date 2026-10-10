@@ -1,7 +1,5 @@
 # Amidst-GTNH
 
-当前正式版：**v0.3.1**
-
 这是面向 GTNH 的 Amidst 分支。主程序通过一个独立的Worker
 模组读取 GTNH 运行时注册信息，并显示主世界、下界、末地、
 暮色森林和多个太空维度的生物群系与结构预测。
@@ -23,7 +21,7 @@
 
 ## 使用方法
 
-1. 将 `amidst-gtnh-worker-v0.3.1.jar` 放入 GTNH 的 `mods` 目录。
+1. 将 `amidst-gtnh-worker-v0.3.2.jar` 放入 GTNH 的 `mods` 目录。
 2. 启动 GTNH 到主菜单即可。Worker 首次生成的配置默认 `enabled=true`，
    当次启动即生效，无需为生成配置再重启一次。已有配置中主动设置的
    `enabled=false` 仍会保留；需要启用时请在启动前改为 `true`。
@@ -31,7 +29,7 @@
    的 `run-viewer.bat`，或使用：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.1.jar
+java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar
 ```
 
 GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等参数，
@@ -45,7 +43,7 @@ GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等�
 原版 Amidst 的 Minecraft profile 模式只能通过命令行显式开启：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.1.jar -vanilla
+java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar -vanilla
 ```
 
 `-profile`、`-mcjar`、`-mcjson` 需要与 `-vanilla` 一起使用。
@@ -72,14 +70,14 @@ Linux/macOS：
 完整的环境要求、版本规则和单独构建 worker 的方法见
 [BUILDING.md](BUILDING.md)。worker 的源码布局说明见
 [gtnh-worker/README.md](gtnh-worker/README.md)。
-崩溃、连接和发布归档的排查步骤见 [Worker 排障说明](docs/worker-troubleshooting.md)。
+崩溃、连接和发布归档的排查步骤见 [Worker 排障说明](docs/archive/worker-troubleshooting.md)。
 
 注：BUILDING.md 和 gtnh-worker/README.md 目前都是 Codex 总结的，未来会
 考虑完善构建和架构细节，方便进一步维护或开发。
 
 ## 运行要求
 
-- 构建环境：Worker 模组需用 Java 21 构建，Amidst 可用 Java 21 或 Java 25 构建。
+- 构建环境：Worker 模组需用 Java 25 构建，Amidst 可用 Java 21 或 Java 25 构建。
 - Amidst 主程序：Java 17 或更高版本。
 - worker 运行环境：目前2.9.x相关版本可用，2.8.x 或 2.7.x 暂未测试，大概率也是可用的。
 
