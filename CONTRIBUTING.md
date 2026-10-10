@@ -125,7 +125,7 @@ VN 的同名间距字段声明在子类上，不能从父类读取或把整合�
 未知生成器必须明确报错，不能静默退回某个已知算法。
 
 新增适配时先运行 `VillageGenerationRulesTest`，再使用
-`gtnh-worker/tools/AuditVillageSelectors.java` 对照该版本的运行 JAR；用法见[工具说明](gtnh-worker/tools/README.md)。
+`gtnh-worker/tools/AuditVillageSelectors.java` 对照该版本的运行 JAR；用法见[村庄对照步骤](docs/reference/village-prediction.md)。
 保留参考 JAR 哈希、配置输入、种子和扫描范围。选点一致不等于建筑存在，
 不得为校验主动创建结构起点或加载区块。月球随机种子输入与主世界不同，不能共用选点公式。
 

@@ -1,20 +1,14 @@
 # Amidst-GTNH
 
-当前版本：**v0.3.3**
-
-本版修复主世界 Village Names 村庄定位。更新内容和精度边界见
-[发布说明](docs/release-v0.3.3.md)。
-
-这是面向 GTNH 的 Amidst 分支。主程序通过一个独立的 Worker
+这是面向 GTNH 的 Amidst 分支。主程序通过一个独立的Worker
 模组读取 GTNH 运行时注册信息，并显示主世界、下界、末地、
 暮色森林和多个太空维度的生物群系与结构预测。
 
-项目主要由 Codex 编写，有很多问题，欢迎发 PR 来完善代码。目前预测结
-果应视为地图辅助信息；已经加载的区块会使用 Minecraft 内存中的群系
+项目主要由Codex编写，有很多问题，欢迎发PR来完善代码。目前预测结
+果应视为地图辅助信息；已经加载的区块会使用Minecraft 内存中的群系
 数据，未生成区域则由当前模组和配置重放生成算法。
 
 ## 功能
-
 - 主世界的生物群系和主要结构定位。
 - 下界的生物群系和结构定位。
 - 末地的HEE生物群系和结构定位，包括龙研的混沌岛屿。小行星矿脉。
@@ -27,7 +21,7 @@
 
 ## 使用方法
 
-1. 将 `amidst-gtnh-worker-v0.3.3.jar` 放入 GTNH 的 `mods` 目录。
+1. 将 `amidst-gtnh-worker-v0.3.2.jar` 放入 GTNH 的 `mods` 目录。
 2. 启动 GTNH 到主菜单即可。Worker 首次生成的配置默认 `enabled=true`，
    当次启动即生效，无需为生成配置再重启一次。已有配置中主动设置的
    `enabled=false` 仍会保留；需要启用时请在启动前改为 `true`。
@@ -35,7 +29,7 @@
    的 `run-viewer.bat`，或使用：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.3.jar
+java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar
 ```
 
 GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等参数，
@@ -49,7 +43,7 @@ GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等�
 原版 Amidst 的 Minecraft profile 模式只能通过命令行显式开启：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.3.jar -vanilla
+java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar -vanilla
 ```
 
 `-profile`、`-mcjar`、`-mcjson` 需要与 `-vanilla` 一起使用。

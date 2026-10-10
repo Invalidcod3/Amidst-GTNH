@@ -184,10 +184,25 @@ Galacticraft-3.4.33-GTNH.jar
 5b29825bbfa51fa04c51afd1fa309e6cd603ea592de94c235bd7382eefada0e3
 ```
 
-可复跑工具：`gtnh-worker/tools/AuditVillageSelectors.java`；用法见工具 README。
+可复跑工具：`gtnh-worker/tools/AuditVillageSelectors.java`。
 JAR 路径、受控 VN 间距和原点半径是输入，输出保留文件哈希，供其他版本复查。
 工具只适配当前 SRG 运行 JAR 的类/方法接口；接口变化需要扩展适配器，不能静默跳过。
 本次临时源码快照、对照程序和输出保留在忽略目录 `build/village-audit/`。
+
+从仓库根目录执行，使用 JDK 17+ 和 ASM 9 的 `asm`、`asm-tree`、`asm-commons` 三个 JAR。
+先构建 Worker 的 `classes`，确保使用当前源码的编译结果；参考模组 JAR 只作为输入。
+
+```powershell
+$villageAsmClasspath = 'C:/reference/asm-9.8.jar;C:/reference/asm-tree-9.8.jar;C:/reference/asm-commons-9.8.jar'
+New-Item -ItemType Directory -Force build/village-audit/classes | Out-Null
+javac -cp $villageAsmClasspath -d build/village-audit/classes gtnh-worker/tools/AuditVillageSelectors.java
+java -cp "build/village-audit/classes;gtnh-worker/build/classes/java/main;$villageAsmClasspath" AuditVillageSelectors gtnh-worker/build/classes/java/main C:/reference/VillageNames-4.5.18-GTNH.jar C:/reference/Galacticraft-3.4.33-GTNH.jar 40 10 0
+```
+
+最后三个参数依次是受控 median、spread、原点半径，省略时默认 `40 10 0`；
+不会自动读取玩家配置。工具输出参考 JAR 哈希、主世界候选分歧、月球对照及窗口检查，
+出现分歧会失败。该工具执行实际 Worker 适配器及参考 VN 的群系解析和选点指令，
+不启动完整模组、不加载区块、不测量真实建筑准确率，也不是默认发布构建的一部分。
 
 源码依据：
 

@@ -4,7 +4,6 @@
 
 - [出生点预测](spawn-prediction.md)
 - [要塞定位与诊断](stronghold-prediction.md)
-- [主世界与月球村庄定位调查](village-prediction.md)
 - [小行星探矿](asteroid-prospecting.md)
 - [地图缓存、验证和导出规则](map-cache-validation-export.md)
 - [更多维度群系来源](additional-dimension-biomes.md)
