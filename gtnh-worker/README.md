@@ -1,8 +1,8 @@
 # Amidst GTNH Worker
 
-Standalone Forge 1.7.10 mod, release **0.3.2**, protocol **25**.
+Standalone Forge 1.7.10 mod, release **0.3.3**, protocol **25**.
 Install it with the matching Viewer and restart Minecraft. Current behavior and
-compatibility are documented in the [release notes](../docs/release-v0.3.2.md).
+compatibility are documented in the [release notes](../docs/release-v0.3.3.md).
 
 ## Responsibilities
 
@@ -11,6 +11,7 @@ compatibility are documented in the [release notes](../docs/release-v0.3.2.md).
 | `BiomeWorkerServer` | Loopback protocol, game-thread queue and request dispatch |
 | `SurfaceBiomeSampler` / `SurfaceBiomeSamplers` | Query interface / runtime and independent RWG implementations |
 | `RwgChunkBiomeReplay` / `RwgSpawnCaves` | Disposable terrain arrays, surface replacement and spawn cave stage |
+| `RwgStructurePredictor` / `VillageGenerationRules` | Overworld structure candidates / final village generator parameters and admission rules |
 | `SavedWorldSpawn` / `SpawnSearch` / `SpawnSearchCache` | Recorded spawn, provider rules, resumable seed searches |
 | `MapCachePreparation` / `MapCacheIdentity` | Background configuration fingerprint and cache identity |
 | `AccuracyValidation` | Independent predictions compared with existing evidence |
@@ -32,8 +33,9 @@ integration boundary. Public core hooks exist only for injected Minecraft calls.
   restart; same-seed world changes must still refresh live data.
 
 See the [maintenance guide](../CONTRIBUTING.md) for source navigation, cache lifecycle,
-tests and release checks, and [spawn prediction](../docs/reference/spawn-prediction.md)
-for the generation stages and known accuracy limit.
+tests and release checks. [Spawn prediction](../docs/reference/spawn-prediction.md) and
+[village prediction](../docs/reference/village-prediction.md) describe the generation
+stages, supported algorithm families and known accuracy limits.
 
 ## Build and diagnostics
 

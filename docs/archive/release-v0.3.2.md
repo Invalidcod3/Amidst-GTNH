@@ -1,5 +1,7 @@
 # Amidst-GTNH v0.3.2
 
+> 历史记录；当前安装请参阅 [v0.3.3 发布说明](../release-v0.3.3.md)。
+
 本版同步 ChunkbaseNH 已确认的三个生物群系配色，并更新 GTNH 要塞图标。
 发行版本 **0.3.2**，通信协议仍为 **25**。
 
@@ -26,7 +28,7 @@
 
 ## 已知限制
 
-- 要塞地图与“前往要塞”菜单仍使用不同预测线路；标记代表起始区块，不是传送门房间，详见[要塞定位](reference/stronghold-prediction.md)。
+- 要塞地图与“前往要塞”菜单仍使用不同预测线路；标记代表起始区块，不是传送门房间，详见[要塞定位](../reference/stronghold-prediction.md)。
 - 纯种子出生点仍为估算；结构、矿脉和小行星标记代表候选，无法保证实际存在。
 - 地图缓存仍需连接 Worker；部分末地查询依赖已加载存档状态。
 
@@ -40,4 +42,4 @@
 - `Amidst-GTNH-v0.3.2-source.zip`：本次构建的源码。
 - `Amidst-GTNH-v0.3.2-SHA256SUMS.txt`：发布文件校验值。
 
-操作见[使用说明](usage.md)，开发见[维护说明](../CONTRIBUTING.md)，旧发行记录见[历史归档](archive/README.md)。
+操作见[使用说明](../usage.md)，开发见[维护说明](../../CONTRIBUTING.md)，旧发行记录见[历史归档](README.md)。

@@ -15,7 +15,7 @@ import net.minecraftforge.event.world.ChunkEvent;
 @Mod(
         modid = AmidstGtnhBiomeWorkerMod.MOD_ID,
         name = "Amidst GTNH Biome Worker",
-        version = "0.3.2",
+        version = "0.3.3",
         acceptedMinecraftVersions = "[1.7.10]",
         dependencies = "before:RWG",
         acceptableRemoteVersions = "*")

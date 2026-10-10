@@ -989,7 +989,8 @@ final class BiomeWorkerServer implements Closeable {
         }
         if (request.structureStage == 0) {
             request.structureResults.addAll(rwgStructurePredictor.predict(request.seed,
-                    request.x, request.z, request.width, request.height, sampler));
+                    request.x, request.z, request.width, request.height, sampler,
+                    request.accuracyJob != null));
             request.structureStage++;
         }
         if (System.nanoTime() >= queryDeadline) throw YieldQuery.INSTANCE;

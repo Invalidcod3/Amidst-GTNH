@@ -2,7 +2,7 @@
 
 本项目由游戏外的 Java 17 Viewer 和游戏内的 Forge 1.7.10 Worker 组成。
 先读本文了解改动边界，再按 [BUILDING.md](BUILDING.md) 构建。
-当前用户行为见 [v0.3.2 发布说明](docs/release-v0.3.2.md)，历次算法调查见 [文档索引](docs/README.md)。
+当前用户行为见 [v0.3.3 发布说明](docs/release-v0.3.3.md)，历次算法调查见 [文档索引](docs/README.md)。
 
 ## 源码导航
 
@@ -16,6 +16,7 @@ Worker 路径以 `gtnh-worker/src/main/java/` 开始。
 | 配色、维度名称 | `GtnhBiomeColorPalette.java`、`amidst/mojangapi/world/Dimension.java`、`src/main/resources/amidst/i18n/zh_CN.json` | 运行时维度目录及群系采样器 |
 | 磁盘缓存、视图恢复 | `amidst/gtnh/cache/`；`amidst/gui/main/viewer/ViewerFacade.java` | `MapCacheIdentity.java`、`MapCachePreparation.java` |
 | 结构候选和刷新 | `amidst/gtnh/structure/GtnhRoguelikeDungeonProducers.java` | 各 `*Predictor.java`、`RoguelikeSiteCheck.java` |
+| 主世界村庄规则 | 同上，沿用结构候选协议 | `RwgStructurePredictor.java`（选点）、`VillageGenerationRules.java`（生成器参数与准入） |
 | 出生点与选中信息 | `GtnhSpawnOracle.java`、`GtnhSpawnIcon.java`；`WorldIconSelection.java` | `SavedWorldSpawn.java`、`SpawnSearch.java`、`SpawnSearchCache.java`、`RwgSpawnCaves.java` |
 | 矿脉与流体 | `amidst/gtnh/prospecting/` | `ProspectingService.java` |
 | 准确性报告 | `amidst/gtnh/validation/`；`amidst/gui/export/AccuracyValidationDialog.java` | `AccuracyValidation.java` |
@@ -71,7 +72,7 @@ Worker `@Mod` 版本及 Viewer 显示版本。`check`、`jar` 和配套发布构
 发布时修改 `src/main/resources/amidst/metadata.properties` 中的发行版本、文件名和显示后缀，
 以及 `AmidstGtnhBiomeWorkerMod.java` 中的 `@Mod` 版本。
 协议变更还需更新 metadata 的 `amidst.worker.protocol` 与两端 `PROTOCOL_VERSION`。
-协议号与发行版本相互独立；当前 v0.3.2 使用协议 25，以 metadata 和构建检查为准。
+协议号与发行版本相互独立；当前 v0.3.3 使用协议 25，以 metadata 和构建检查为准。
 
 ## 代码风格
 
@@ -116,10 +117,22 @@ Viewer 的 10 个 `DevToolRunner` 项是默认禁用的开发工具，不是产�
 `SpawnSearch` 负责提供器规则与随机游走；保存的世界坐标由 `SavedWorldSpawn` 读取，始终优先于估算。
 不要重新使用已删除的“群系默认地表为草”启发式接口。测试中的冻结参考实现保留历史算法用于对照，不作为生产入口。
 
+### 村庄维护
+
+主世界和月球的规则、参考版本及精度边界见[村庄定位](docs/reference/village-prediction.md)。
+主世界按运行时最终生成器识别原版 RWG / Village Names；参数读取与区域选点分开。
+VN 的同名间距字段声明在子类上，不能从父类读取或把整合包默认值写死。
+未知生成器必须明确报错，不能静默退回某个已知算法。
+
+新增适配时先运行 `VillageGenerationRulesTest`，再使用
+`gtnh-worker/tools/AuditVillageSelectors.java` 对照该版本的运行 JAR；用法见[工具说明](gtnh-worker/tools/README.md)。
+保留参考 JAR 哈希、配置输入、种子和扫描范围。选点一致不等于建筑存在，
+不得为校验主动创建结构起点或加载区块。月球随机种子输入与主世界不同，不能共用选点公式。
+
 ### 文档维护
 
 当前入口保持精简：`README.md` 用于快速安装，`docs/usage.md` 用于操作，
-`docs/release-v0.3.2.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
+`docs/release-v0.3.3.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
 同版本变更直接合并到这些文档；算法依据放 `docs/reference/`，历史测量和旧补丁记录放 `docs/archive/`。
 移动文档后核对 Markdown 相对链接、源码注释中的路径及随包安装说明，不能仅修改文档索引。
 

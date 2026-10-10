@@ -11,6 +11,7 @@
 
 ## 旧发布与版本迭代
 
+- [Amidst-GTNH v0.3.2](release-v0.3.2.md)
 - [Amidst-GTNH v0.3.1](release-v0.3.1.md)
 
 - [v35：刷新黑块与群系预测性能](gtnh-v35-performance.md)

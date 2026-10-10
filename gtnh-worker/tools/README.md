@@ -1,5 +1,37 @@
 # Worker JAR verification
 
+## Village selector audit
+
+`AuditVillageSelectors.java` compares the current Worker selectors with method
+instructions extracted from reference Village Names and Galacticraft runtime
+JARs. It uses controlled biome/configuration inputs and a save-free replacement
+for Minecraft's random-seed API. It does not initialize either full mod, load
+chunks, place structures, or measure real-world building accuracy. See
+[the village investigation](../../docs/reference/village-prediction.md).
+
+Use JDK 17+ and ASM 9 (`asm`, `asm-tree`, `asm-commons`). Set the classpath to
+those three library JARs; reference mod JARs are inputs, not runtime dependencies.
+Run the Worker `classes` task first and use freshly compiled classes:
+
+```powershell
+$villageAsmClasspath = 'C:/reference/asm-9.8.jar;C:/reference/asm-tree-9.8.jar;C:/reference/asm-commons-9.8.jar'
+New-Item -ItemType Directory -Force build/village-audit/classes | Out-Null
+javac -cp $villageAsmClasspath -d build/village-audit/classes gtnh-worker/tools/AuditVillageSelectors.java
+java -cp "build/village-audit/classes;gtnh-worker/build/classes/java/main;$villageAsmClasspath" AuditVillageSelectors gtnh-worker/build/classes/java/main C:/reference/VillageNames-4.5.18-GTNH.jar C:/reference/Galacticraft-3.4.33-GTNH.jar 40 10 0
+```
+
+Commands above run from the repository root. The last three arguments are
+controlled median, spread and origin-radius values, defaulting to `40 10 0`
+when omitted. They are not automatically read from a player's game config.
+The diagnostic prints JAR hashes, Moon comparisons, marker-window checks, and
+Overworld candidate differences. A mismatch fails the run. The Overworld audit
+executes the actual Worker generator adapter, the native VN biome parser and
+native selector with controlled fields; extra cases cover different spacing,
+radius, empty lists, biome metadata and terrain/biome disagreement. It accepts other
+SRG runtime JAR versions with the same selector/configuration interface; interface
+changes require reviewing the adapter. This is a manual diagnostic, not a default
+release check or proof that an arbitrary game/mod combination is supported.
+
 ## Runtime profiling
 
 `Capture-Jfr.ps1` attaches a bounded JFR recording to a selected game or Viewer
@@ -40,7 +72,6 @@ reference in the verifier and retain a member reference that distinguishes
 the developer and installable archives. Keep ordinary Java source names in
 the worker; the build handles their conversion to SRG names.
 
-The test package has a separate version suffix. The current scripts use protocol `19`; update both Viewer and Worker for v39:
-v37 adds the optional overworld `structures` request field `structureGroup`,
-with `standard` and `thaumcraft` values. Omission retains the combined response.
-Older workers ignore the field, so both sides should be updated for the speed benefit.
+Current versions and the protocol come from `src/main/resources/amidst/metadata.properties`;
+`verifyReleaseContract` checks both modules against that metadata. Historical test
+package versions and profiling results belong to [the archive](../../docs/archive/README.md).

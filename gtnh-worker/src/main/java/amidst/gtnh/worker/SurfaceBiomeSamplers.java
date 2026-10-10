@@ -21,6 +21,9 @@ import net.minecraft.world.WorldType;
 import net.minecraft.world.biome.BiomeGenBase;
 import net.minecraft.world.biome.WorldChunkManager;
 import net.minecraft.world.chunk.IChunkProvider;
+import net.minecraft.world.gen.structure.MapGenVillage;
+import net.minecraftforge.event.terraingen.InitMapGenEvent.EventType;
+import net.minecraftforge.event.terraingen.TerrainGen;
 
 final class SurfaceBiomeSamplers {
 
@@ -141,6 +144,7 @@ final class SurfaceBiomeSamplers {
         private final Class<?> noiseType;
         private final World previewWorld;
         private final long seed;
+        private Object previewVillageGenerator;
         private RwgChunkBiomeReplay replay;
         private RwgSpawnCaves spawnCaves;
         private final Map<Long, SpawnSearch.Surface[]> spawnSurfaces =
@@ -692,6 +696,34 @@ final class SurfaceBiomeSamplers {
              * and intentionally ignores the vanilla biome list.
              */
             return manager.areBiomesViable(x, z, 0, Collections.emptyList());
+        }
+
+        @Override
+        public Object getVillageGenerator() {
+            if (world != null) {
+                Object provider = world.theChunkProviderServer.currentChunkProvider;
+                if (provider == null || !hasTypeNamed(provider.getClass(),
+                        "rwg.world.ChunkGeneratorRealistic")) {
+                    throw new IllegalStateException("Unsupported RWG chunk provider for villages");
+                }
+                try {
+                    Field field = findField(provider.getClass(), "villageGenerator");
+                    field.setAccessible(true);
+                    return field.get(provider);
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException("Cannot read RWG village generator", e);
+                }
+            }
+            if (previewVillageGenerator == null) {
+                Map<String, String> parameters = new java.util.HashMap<String, String>();
+                parameters.put("size", "0");
+                parameters.put("distance", "24");
+                // Same VILLAGE selection hook as RWG's constructor, confined to a new map
+                // generator. No live generator is mutated and no generation callback is run.
+                previewVillageGenerator = TerrainGen.getModdedMapGen(
+                        new MapGenVillage(parameters), EventType.VILLAGE);
+            }
+            return previewVillageGenerator;
         }
 
         @Override
