@@ -1,5 +1,13 @@
 package amidst.gtnh.worker;
 
+import com.google.gson.Gson;
+
+import net.minecraft.world.WorldServer;
+import net.minecraft.world.biome.BiomeGenBase;
+import net.minecraft.world.biome.WorldChunkManager;
+import net.minecraftforge.common.BiomeDictionary;
+import net.minecraftforge.common.DimensionManager;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.Closeable;
@@ -10,36 +18,45 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import net.minecraft.world.WorldServer;
-import net.minecraft.world.biome.BiomeGenBase;
-import net.minecraft.world.biome.WorldChunkManager;
-import net.minecraftforge.common.BiomeDictionary;
-import net.minecraftforge.common.DimensionManager;
-
-import com.google.gson.Gson;
-
 final class BiomeWorkerServer implements Closeable {
 
-    private static final int PROTOCOL_VERSION = 25;
+    private static final int PROTOCOL_VERSION = 31;
     private final ProspectingService prospectingService = new ProspectingService();
-    private final SpawnSearchCache spawnSearches = new SpawnSearchCache(this::getArbitrarySeedSampler);
+    private final SpawnSearchCache spawnSearches =
+            new SpawnSearchCache(this::getArbitrarySeedSampler);
+    private final Rwg2PoiPool<PoiContext> smoothPoiPool = new Rwg2PoiPool<>(PoiContext::new);
+
+    private static final class PoiContext {
+        final Rwg2SurfaceBiomeSampler sampler;
+        final Rwg2StructurePredictor landmarks;
+        final VanillaDungeonPredictor dungeons;
+        final boolean backgroundCaves;
+
+        PoiContext(long seed, boolean simplex) {
+            sampler = new Rwg2SurfaceBiomeSampler(seed, simplex);
+            landmarks = sampler.structures();
+            dungeons = new VanillaDungeonPredictor("rwg2.config.ConfigRWG");
+            backgroundCaves = sampler.prepareUnderground();
+        }
+    }
+
     private static final int NETHER = -1;
     private static final int OVERWORLD = 0;
     private static final int END = 1;
@@ -52,12 +69,14 @@ final class BiomeWorkerServer implements Closeable {
     private static final int MAX_SAMPLES = 65536;
     private static final int MAX_CACHED_SEEDS = 4;
     private static final int MAX_CACHED_BIOME_TILES = 256;
-    private final OverworldTileCache liveTilePredictions = new OverworldTileCache(MAX_CACHED_BIOME_TILES);
+    private final OverworldTileCache liveTilePredictions =
+            new OverworldTileCache(MAX_CACHED_BIOME_TILES);
     private static final int MAX_CHUNK_CHANGES = 4_096;
     private static final int SOCKET_TIMEOUT_MILLIS = 35000;
     // A soft budget: one native chunk callback cannot be preempted safely.
-    private static final long QUERY_BUDGET_NANOS = Math.max(1, Math.min(20,
-            Integer.getInteger("gtnh.amidst.worker.tickBudgetMillis", 20))) * 1_000_000L;
+    private static final long QUERY_BUDGET_NANOS =
+            Math.max(1, Math.min(20, Integer.getInteger("gtnh.amidst.worker.tickBudgetMillis", 20)))
+                    * 1_000_000L;
     private final WorkerTickBudget tickBudget = new WorkerTickBudget(QUERY_BUDGET_NANOS);
     private long queryDeadline = Long.MAX_VALUE;
     private boolean forgeBatchCompleted;
@@ -69,8 +88,20 @@ final class BiomeWorkerServer implements Closeable {
     private WorldServer stateWorld;
     private WorldServer stateEndWorld;
     private String worldSession = java.util.UUID.randomUUID().toString();
-    private final BlockingQueue<FutureTask<Response>> serverThreadQueries = new LinkedBlockingQueue<FutureTask<Response>>();
-    private final ExecutorService clientExecutor = Executors.newFixedThreadPool(4, daemonFactory("GTNH biome client"));
+    private final BlockingQueue<FutureTask<Response>> serverThreadQueries =
+            new LinkedBlockingQueue<FutureTask<Response>>();
+    // Admit up to 64 map requests plus resource/control traffic; CPU work has its own pool.
+    private final ExecutorService clientExecutor =
+            new java.util.concurrent.ThreadPoolExecutor(
+                    72,
+                    72,
+                    0L,
+                    TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<Runnable>(72),
+                    daemonFactory("GTNH biome client"));
+    private final java.util.Set<Socket> clientSockets =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Rwg2SamplingPool smoothSamplingPool = new Rwg2SamplingPool();
     private final Deque<ChunkChange> overworldChunkChanges = new ArrayDeque<ChunkChange>();
 
     private volatile boolean running;
@@ -85,9 +116,10 @@ final class BiomeWorkerServer implements Closeable {
     private NetherBiomeSampler netherBiomeSampler;
     private RoguelikeDungeonPredictor roguelikeDungeonPredictor;
     private RwgStructurePredictor rwgStructurePredictor;
+    private RwgStructurePredictor smoothStructurePredictor;
     private ModStructurePredictor modStructurePredictor;
     private ThaumcraftStructurePredictor thaumcraftStructurePredictor;
-    private VanillaDungeonPredictor vanillaDungeonPredictor;
+    private VanillaDungeonPredictor vanillaDungeonPredictor, smoothDungeonPredictor;
     private EndStructurePredictor endStructurePredictor;
     private EndAsteroidPredictor endAsteroidPredictor;
     private TwilightForestFeaturePredictor twilightForestFeaturePredictor;
@@ -97,7 +129,15 @@ final class BiomeWorkerServer implements Closeable {
     private SpaceStructurePredictor spaceStructurePredictor;
     private OreVeinPredictor oreVeinPredictor;
     private JourneyMapWaypointImporter journeyMapWaypointImporter;
-    private final AdditionalDimensionBiomes additionalDimensionBiomes = new AdditionalDimensionBiomes();
+    private final AdditionalDimensionBiomes additionalDimensionBiomes =
+            new AdditionalDimensionBiomes();
+    private final Map<String, SurfaceBiomeSampler> smoothSamplers =
+            new LinkedHashMap<String, SurfaceBiomeSampler>(8, .75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SurfaceBiomeSampler> e) {
+                    return size() > MAX_CACHED_SEEDS;
+                }
+            };
     private final Map<Long, SurfaceBiomeSampler> arbitrarySeedSamplers =
             new LinkedHashMap<Long, SurfaceBiomeSampler>(8, 0.75F, true) {
 
@@ -118,7 +158,8 @@ final class BiomeWorkerServer implements Closeable {
             new LinkedHashMap<Long, TwilightForestBiomeSampler>(8, 0.75F, true) {
 
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<Long, TwilightForestBiomeSampler> eldest) {
+                protected boolean removeEldestEntry(
+                        Map.Entry<Long, TwilightForestBiomeSampler> eldest) {
                     return size() > MAX_CACHED_SEEDS;
                 }
             };
@@ -148,13 +189,16 @@ final class BiomeWorkerServer implements Closeable {
             // when Minecraft's JVM prefers IPv6, leaving 127.0.0.1 unreachable.
             serverSocket = new ServerSocket(port, 16, InetAddress.getByName("127.0.0.1"));
             running = true;
-            acceptThread = daemonFactory("GTNH biome acceptor").newThread(new Runnable() {
+            acceptThread =
+                    daemonFactory("GTNH biome acceptor")
+                            .newThread(
+                                    new Runnable() {
 
-                @Override
-                public void run() {
-                    acceptConnections();
-                }
-            });
+                                        @Override
+                                        public void run() {
+                                            acceptConnections();
+                                        }
+                                    });
             acceptThread.start();
             AmidstGtnhWorkerLog.LOG.info(
                     "GTNH biome worker listening on {}:{} (protocol {}, token {})",
@@ -165,18 +209,25 @@ final class BiomeWorkerServer implements Closeable {
             return true;
         } catch (IOException | IllegalArgumentException e) {
             AmidstGtnhWorkerLog.LOG.error(
-                    "Cannot bind GTNH biome worker to 127.0.0.1:" + port
-                            + ". Minecraft will continue without the map service. "
-                            + "Check for another running GTNH instance and worker.port in amidstgtnhworker.cfg.",
+                    "Cannot bind GTNH biome worker to 127.0.0.1:"
+                            + port
+                            + ". Minecraft will continue without the map service. Check for another"
+                            + " running GTNH instance and worker.port in amidstgtnhworker.cfg.",
                     e);
             close();
             return false;
         }
     }
 
-    synchronized void beginGameTick() { tickBudget.begin(System.nanoTime()); forgeBatchCompleted = false; }
+    synchronized void beginGameTick() {
+        tickBudget.begin(System.nanoTime());
+        forgeBatchCompleted = false;
+    }
 
-    synchronized void onForgeTickEnd() { executeQueuedQueries(); forgeBatchCompleted = true; }
+    synchronized void onForgeTickEnd() {
+        executeQueuedQueries();
+        forgeBatchCompleted = true;
+    }
 
     synchronized void onIntegratedTickEnd() {
         // Ordinary worlds already ran at Forge END. ESC skips that event.
@@ -208,13 +259,33 @@ final class BiomeWorkerServer implements Closeable {
         while (running) {
             try {
                 final Socket socket = serverSocket.accept();
-                clientExecutor.execute(new Runnable() {
+                clientSockets.add(socket);
+                try {
+                    clientExecutor.execute(
+                            new Runnable() {
 
-                    @Override
-                    public void run() {
-                        handleClient(socket);
+                                @Override
+                                public void run() {
+                                    handleClient(socket);
+                                }
+                            });
+                } catch (java.util.concurrent.RejectedExecutionException full) {
+                    try (Socket rejected = socket) {
+                        BufferedWriter writer =
+                                new BufferedWriter(
+                                        new OutputStreamWriter(
+                                                rejected.getOutputStream(),
+                                                StandardCharsets.UTF_8));
+                        writer.write(gson.toJson(Response.error("worker is busy; retry later")));
+                        writer.newLine();
+                        writer.flush();
+                    } catch (IOException disconnected) {
+                        AmidstGtnhWorkerLog.LOG.debug(
+                                "GTNH Viewer disconnected before the busy response");
+                    } finally {
+                        clientSockets.remove(socket);
                     }
-                });
+                }
             } catch (IOException e) {
                 if (running) {
                     AmidstGtnhWorkerLog.LOG.error("GTNH biome worker accept failed", e);
@@ -227,17 +298,21 @@ final class BiomeWorkerServer implements Closeable {
         try {
             socket.setSoTimeout(SOCKET_TIMEOUT_MILLIS);
             try {
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-                BufferedWriter writer = new BufferedWriter(
-                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+                BufferedReader reader =
+                        new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8));
+                BufferedWriter writer =
+                        new BufferedWriter(
+                                new OutputStreamWriter(
+                                        socket.getOutputStream(), StandardCharsets.UTF_8));
                 String line = reader.readLine();
                 Response response;
                 if (line == null) {
                     response = Response.error("request was empty");
                 } else {
                     Request request = gson.fromJson(line, Request.class);
-                    response = submit(request);
+                    response = submit(request, socket, reader);
                 }
                 writer.write(gson.toJson(response));
                 writer.newLine();
@@ -245,15 +320,29 @@ final class BiomeWorkerServer implements Closeable {
             } finally {
                 socket.close();
             }
+        } catch (CancellationException ignored) {
+            // A superseded viewport explicitly cancelled its unfinished request.
+        } catch (java.net.SocketException | java.net.SocketTimeoutException disconnected) {
+            // Moving the viewport, a read deadline, or closing Viewer may race the final write.
+            AmidstGtnhWorkerLog.LOG.debug(
+                    "GTNH Viewer connection ended: " + disconnected.getMessage());
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
         } catch (Exception e) {
             AmidstGtnhWorkerLog.LOG.warn("GTNH biome worker client request failed", e);
             try {
                 socket.close();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
+        } finally {
+            clientSockets.remove(socket);
         }
     }
 
-    private Response submit(final Request request) {
+    private Response submit(final Request request, Socket socket, BufferedReader reader)
+            throws IOException {
         if (request == null) {
             return Response.error("request JSON was invalid");
         }
@@ -264,9 +353,24 @@ final class BiomeWorkerServer implements Closeable {
             return Response.error("authentication failed");
         }
         FutureTask<Response> task = new ResumableQuery(request);
+        socket.setSoTimeout(1);
         serverThreadQueries.add(task);
         try {
-            return task.get(SOCKET_TIMEOUT_MILLIS - 5000L, TimeUnit.MILLISECONDS);
+            long deadline = System.nanoTime() + (SOCKET_TIMEOUT_MILLIS - 5000L) * 1_000_000L;
+            while (true) {
+                try {
+                    return task.get(50L, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    try {
+                        int signal = reader.read();
+                        if (signal < 0 || signal == 0x18)
+                            throw new CancellationException("Viewer cancelled or disconnected");
+                    } catch (java.net.SocketTimeoutException stillConnected) {
+                        // ready() cannot detect EOF, so briefly poll the cancellation stream.
+                    }
+                    if (System.nanoTime() >= deadline) throw e;
+                }
+            }
         } catch (InterruptedException e) {
             task.cancel(false);
             serverThreadQueries.remove(task);
@@ -279,6 +383,11 @@ final class BiomeWorkerServer implements Closeable {
             task.cancel(false);
             serverThreadQueries.remove(task);
             return Response.error("server thread did not process the query in time");
+        } finally {
+            // Includes cancellation, transport failure and an interrupted client handler.
+            // Never interrupt a native world callback that is currently in progress.
+            if (!task.isDone()) task.cancel(false);
+            serverThreadQueries.remove(task);
         }
     }
 
@@ -287,11 +396,27 @@ final class BiomeWorkerServer implements Closeable {
         private final long queuedAt = System.nanoTime();
         private long firstStart, computeNanos, maxSliceNanos;
         private int slices;
+
         ResumableQuery(Request request) {
             super(() -> null);
             this.request = request;
+            request.wakeQuery =
+                    () -> {
+                        if (!isDone() && running) {
+                            serverThreadQueries.add(this);
+                            if (isDone()) serverThreadQueries.remove(this);
+                        }
+                    };
         }
-        @Override public void run() {
+
+        @Override
+        protected void done() {
+            if (isCancelled() && request.parallelJob != null) request.parallelJob.cancel();
+            if (isCancelled() && request.poiJob != null) request.poiJob.cancel();
+        }
+
+        @Override
+        public void run() {
             if (isDone()) return;
             long start = System.nanoTime();
             long batchDeadline = queryDeadline;
@@ -305,6 +430,8 @@ final class BiomeWorkerServer implements Closeable {
                 response = executeOnServerThread(request);
             } catch (YieldQuery ignored) {
                 resume = true;
+            } catch (AwaitQuery ignored) {
+                // Park entirely. Only background completion requeues this query.
             } catch (Throwable failure) {
                 setException(failure);
             } finally {
@@ -313,6 +440,9 @@ final class BiomeWorkerServer implements Closeable {
                 computeNanos += elapsed;
                 maxSliceNanos = Math.max(maxSliceNanos, elapsed);
                 slices++;
+                // Cancellation can race game-thread construction before the job is assigned.
+                if (isCancelled() && request.parallelJob != null) request.parallelJob.cancel();
+                if (isCancelled() && request.poiJob != null) request.poiJob.cancel();
             }
             if (resume) {
                 if (!isDone()) serverThreadQueries.add(this);
@@ -331,11 +461,23 @@ final class BiomeWorkerServer implements Closeable {
 
     private static final class YieldQuery extends RuntimeException {
         static final YieldQuery INSTANCE = new YieldQuery();
-        private YieldQuery() { super(null, null, false, false); }
+
+        private YieldQuery() {
+            super(null, null, false, false);
+        }
+    }
+
+    private static final class AwaitQuery extends RuntimeException {
+        static final AwaitQuery INSTANCE = new AwaitQuery();
+
+        private AwaitQuery() {
+            super(null, null, false, false);
+        }
     }
 
     private Response executeOnServerThread(Request request) {
         try {
+            request.generator = OverworldGenerator.normalize(request.generator);
             if ("validate".equals(request.command)) return validateAccuracy(request);
             if ("prospecting_catalog".equals(request.command)) {
                 Response response = Response.ok();
@@ -343,8 +485,18 @@ final class BiomeWorkerServer implements Closeable {
                 return response;
             }
             if ("prospecting".equals(request.command)) {
-                if (request.prospectingJob == null) request.prospectingJob = prospectingService.start(
-                        request.seed, request.dimension, request.x, request.z, request.width, request.height, request.markerMode, request.prospectingFilter);
+                if (request.prospectingJob == null)
+                    request.prospectingJob =
+                            prospectingService.start(
+                                    request.seed,
+                                    request.dimension,
+                                    request.x,
+                                    request.z,
+                                    request.width,
+                                    request.height,
+                                    request.markerMode,
+                                    request.prospectingFilter,
+                                    request.generator);
                 if (!request.prospectingJob.advance(queryDeadline)) throw YieldQuery.INSTANCE;
                 Response response = Response.ok();
                 response.prospecting = request.prospectingJob.result;
@@ -356,22 +508,46 @@ final class BiomeWorkerServer implements Closeable {
             if ("cache_context".equals(request.command)) {
                 Response response = Response.ok();
                 try {
-                    response.cacheIdentity = mapIdentity.viewIdentity(request.seed);
+                    response.cacheIdentity =
+                            mapIdentity.viewIdentity(request.seed, request.generator);
                     if (request.width > 0) {
                         validateRequest(request);
-                        response.cacheStamp = mapIdentity.tile(request.seed,request.dimension,request.dimensionKey,
-                                request.x,request.z,request.width,request.height,request.step);
+                        response.cacheStamp =
+                                mapIdentity.tile(
+                                        request.seed,
+                                        request.dimension,
+                                        request.dimensionKey,
+                                        request.x,
+                                        request.z,
+                                        request.width,
+                                        request.height,
+                                        request.step,
+                                        request.generator);
                     }
-                } catch (RuntimeException e) { AmidstGtnhWorkerLog.LOG.warn("Disk map cache unavailable",e); }
+                } catch (RuntimeException e) {
+                    AmidstGtnhWorkerLog.LOG.warn("Disk map cache unavailable", e);
+                }
                 return response;
             }
             if ("biomes".equals(request.command)) {
                 Response response = sampleBiomes(request);
-                if (request.cacheStamp != null) try {
-                    String after = mapIdentity.tile(request.seed,request.dimension,request.dimensionKey,
-                            request.x,request.z,request.width,request.height,request.step);
-                    if (request.cacheStamp.equals(after)) response.cacheStamp = after;
-                } catch(RuntimeException ignored) { /* Cache is optional. */ }
+                if (request.cacheStamp != null)
+                    try {
+                        String after =
+                                mapIdentity.tile(
+                                        request.seed,
+                                        request.dimension,
+                                        request.dimensionKey,
+                                        request.x,
+                                        request.z,
+                                        request.width,
+                                        request.height,
+                                        request.step,
+                                        request.generator);
+                        if (request.cacheStamp.equals(after)) response.cacheStamp = after;
+                    } catch (RuntimeException ignored) {
+                        /* Cache is optional. */
+                    }
                 return response;
             }
             if ("compare_biomes".equals(request.command)) {
@@ -390,55 +566,101 @@ final class BiomeWorkerServer implements Closeable {
                 return importJourneyMapWaypoints(request);
             }
             return Response.error("unknown command " + request.command);
-        } catch (YieldQuery yield) {
+        } catch (YieldQuery | AwaitQuery yield) {
             throw yield;
         } catch (RuntimeException | LinkageError e) {
             // A missing runtime member is a Worker/mod compatibility failure,
             // not an unavailable TCP port. Return the cause to the Viewer.
             AmidstGtnhWorkerLog.LOG.error(
-                    "GTNH worker command " + request.command
-                            + " failed (seed=" + request.seed
-                            + ", dimension=" + request.dimension
-                            + ", area=" + request.x + "," + request.z
-                            + " " + request.width + "x" + request.height + ")",
+                    "GTNH worker command "
+                            + request.command
+                            + " failed (seed="
+                            + request.seed
+                            + ", dimension="
+                            + request.dimension
+                            + ", area="
+                            + request.x
+                            + ","
+                            + request.z
+                            + " "
+                            + request.width
+                            + "x"
+                            + request.height
+                            + ")",
                     e);
             return Response.error(safeMessage(e));
         }
     }
 
     private Response validateAccuracy(Request r) {
-        if(r.accuracyJob==null) {
-            String session=createWorldStateResponse(r).worldSession;
-            if(r.expectedSession!=null && !r.expectedSession.equals(session))
-                throw new IllegalStateException("World changed between validation categories; run again");
-            r.accuracyJob=new AccuracyValidation.Job(r.seed,r.dimension,r.x,r.z,r.width,r.height,r.step,
-                    r.category,session,(x,z)->independentBiome(r,x,z),(id,unused)->validationDisplayId(r,id),prospectingService);
+        if (r.dimension == 0
+                && !OverworldGenerator.matches(DimensionManager.getWorld(0), r.seed, r.generator))
+            throw new IllegalArgumentException(
+                    "Validation requires the same loaded seed and generator");
+        if (r.accuracyJob == null) {
+            String session = createWorldStateResponse(r).worldSession;
+            if (r.expectedSession != null && !r.expectedSession.equals(session))
+                throw new IllegalStateException(
+                        "World changed between validation categories; run again");
+            r.accuracyJob =
+                    new AccuracyValidation.Job(
+                            r.seed,
+                            r.dimension,
+                            r.x,
+                            r.z,
+                            r.width,
+                            r.height,
+                            r.step,
+                            r.category,
+                            session,
+                            (x, z) -> independentBiome(r, x, z),
+                            (id, unused) -> validationDisplayId(r, id),
+                            prospectingService);
         }
         r.accuracyJob.checkWorld();
-        if("STRUCTURES".equals(r.category) && r.accuracyJob.structures==null) {
-            if(AdditionalDimensionBiomes.supports(r.dimensionKey)) {
-                r.accuracyJob.structures=new ArrayList<>();
-                r.accuracyJob.result.add("STRUCTURES",r.x,r.z,"","","UNVERIFIED","No structure predictor for this dimension");
-            } else r.accuracyJob.structures=sampleStructures(r).structures;
+        if ("STRUCTURES".equals(r.category) && r.accuracyJob.structures == null) {
+            if (AdditionalDimensionBiomes.supports(r.dimensionKey)) {
+                r.accuracyJob.structures = new ArrayList<>();
+                r.accuracyJob.result.add(
+                        "STRUCTURES",
+                        r.x,
+                        r.z,
+                        "",
+                        "",
+                        "UNVERIFIED",
+                        "No structure predictor for this dimension");
+            } else r.accuracyJob.structures = sampleStructures(r).structures;
         }
-        if(!r.accuracyJob.advance(queryDeadline))throw YieldQuery.INSTANCE;
-        Response response=Response.ok();response.accuracy=r.accuracyJob.result;return response;
+        if (!r.accuracyJob.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+        Response response = Response.ok();
+        response.accuracy = r.accuracyJob.result;
+        return response;
     }
-    private int independentBiome(Request r,int x,int z) {
-        if(matches(r,OVERWORLD_KEY,OVERWORLD))return getSampler(r.seed,0).getPredictedBiomeAt(x,z).biomeID;
-        if(matches(r,NETHER_KEY,NETHER))return getArbitrarySeedNetherSampler(r.seed).getBiomeAt(x,z).biomeID;
-        if(matches(r,END_KEY,END))return -1;
-        if(matches(r,MOON_KEY,MoonBiomeSampler.configuredDimensionId()))return validationDisplayId(r,MoonBiomeSampler.biome().biomeID);
-        if(matches(r,TWILIGHT_FOREST_KEY,TwilightForestBiomeSampler.configuredDimensionId()))
-            return getArbitrarySeedTwilightSampler(r.seed).getBiomeAt(x,z).biomeID;
-        if(AdditionalDimensionBiomes.supports(r.dimensionKey))return additionalDimensionBiomes.sample(r.seed,r.dimension,r.dimensionKey,x,z,1,1,1,false)[0];
-        if(SpaceDimensionSampler.virtualBiomeId(r.dimensionKey,r.dimension)>=0)return -1;
-        if(spaceDimensionSampler==null)spaceDimensionSampler=new SpaceDimensionSampler();
-        return spaceDimensionSampler.sample(r.seed,r.dimension,r.dimensionKey,x,z,1,1,1,false)[0];
+
+    private int independentBiome(Request r, int x, int z) {
+        if (matches(r, OVERWORLD_KEY, OVERWORLD))
+            return getSampler(r).getPredictedBiomeAt(x, z).biomeID;
+        if (matches(r, NETHER_KEY, NETHER))
+            return getArbitrarySeedNetherSampler(r.seed).getBiomeAt(x, z).biomeID;
+        if (matches(r, END_KEY, END)) return -1;
+        if (matches(r, MOON_KEY, MoonBiomeSampler.configuredDimensionId()))
+            return validationDisplayId(r, MoonBiomeSampler.biome().biomeID);
+        if (matches(r, TWILIGHT_FOREST_KEY, TwilightForestBiomeSampler.configuredDimensionId()))
+            return getArbitrarySeedTwilightSampler(r.seed).getBiomeAt(x, z).biomeID;
+        if (AdditionalDimensionBiomes.supports(r.dimensionKey))
+            return additionalDimensionBiomes
+                    .sample(r.seed, r.dimension, r.dimensionKey, x, z, 1, 1, 1, false)[0];
+        if (SpaceDimensionSampler.virtualBiomeId(r.dimensionKey, r.dimension) >= 0) return -1;
+        if (spaceDimensionSampler == null) spaceDimensionSampler = new SpaceDimensionSampler();
+        return spaceDimensionSampler
+                .sample(r.seed, r.dimension, r.dimensionKey, x, z, 1, 1, 1, false)[0];
     }
-    private int validationDisplayId(Request r,int raw) {
-        if(AdditionalDimensionBiomes.supports(r.dimensionKey))return AdditionalDimensionBiomes.sampledDisplayId(r.dimensionKey,AdditionalDimensionBiomes.sources().get(r.dimensionKey),raw);
-        return SpaceDimensionSampler.displayBiomeId(r.dimensionKey,raw);
+
+    private int validationDisplayId(Request r, int raw) {
+        if (AdditionalDimensionBiomes.supports(r.dimensionKey))
+            return AdditionalDimensionBiomes.sampledDisplayId(
+                    r.dimensionKey, AdditionalDimensionBiomes.sources().get(r.dimensionKey), raw);
+        return SpaceDimensionSampler.displayBiomeId(r.dimensionKey, raw);
     }
 
     private Response importJourneyMapWaypoints(Request request) {
@@ -446,9 +668,8 @@ final class BiomeWorkerServer implements Closeable {
             journeyMapWaypointImporter = new JourneyMapWaypointImporter();
         }
         Response response = Response.ok();
-        response.importedWaypoints = journeyMapWaypointImporter.importWaypoints(
-                request.dimension,
-                request.waypoints);
+        response.importedWaypoints =
+                journeyMapWaypointImporter.importWaypoints(request.dimension, request.waypoints);
         return response;
     }
 
@@ -463,7 +684,8 @@ final class BiomeWorkerServer implements Closeable {
             stateEndWorld = currentEnd;
             worldSession = java.util.UUID.randomUUID().toString();
             response.fullRefresh = true;
-            biomeTileCache.clear(); liveTilePredictions.clear();
+            biomeTileCache.clear();
+            liveTilePredictions.clear();
         }
         response.worldSession = worldSession;
         response.worldRevision = overworldChunkRevision;
@@ -504,19 +726,16 @@ final class BiomeWorkerServer implements Closeable {
     private Response createHelloResponse() {
         WorldServer world = DimensionManager.getWorld(0);
         Response response = Response.ok();
-        if (world != null && SurfaceBiomeSamplers.isRwg(world.getWorldChunkManager())) {
-            response.seed = world.getSeed();
-            response.worldType = world.getWorldInfo().getTerrainType().getWorldTypeName();
-            response.providerClass = world.provider.getClass().getName();
-            response.chunkManagerClass = world.getWorldChunkManager().getClass().getName();
-            getSurfaceBiomeSampler(world);
-        } else {
-            getArbitrarySeedSampler(0L);
-            response.seed = 0L;
-            response.worldType = "RWG";
-            response.providerClass = SurfaceBiomeSamplers.OVERWORLD_PROVIDER;
-            response.chunkManagerClass = SurfaceBiomeSamplers.RWG_CHUNK_MANAGER;
-        }
+        response.seed = world == null ? 0L : world.getSeed();
+        response.worldType =
+                OverworldGenerator.hasSmooth()
+                        ? OverworldGenerator.SMOOTH
+                        : OverworldGenerator.ALPHA;
+        response.providerClass = SurfaceBiomeSamplers.OVERWORLD_PROVIDER;
+        response.chunkManagerClass =
+                OverworldGenerator.hasSmooth()
+                        ? Rwg2Runtime.MANAGER
+                        : SurfaceBiomeSamplers.RWG_CHUNK_MANAGER;
         response.biomes = getBiomeDescriptors();
         response.twilightForestDimensionId = TwilightForestBiomeSampler.configuredDimensionId();
         response.moonDimensionId = MoonBiomeSampler.configuredDimensionId();
@@ -547,8 +766,10 @@ final class BiomeWorkerServer implements Closeable {
         // Nether loaded chunks remain authoritative on every request. Other
         // dimensions use seed-only prediction and can reuse complete rasters.
         WorldServer dimensionWorld = DimensionManager.getWorld(request.dimension);
-        boolean live = dimensionWorld != null && dimensionWorld.getWorldInfo().getSeed() == request.seed;
-        BiomeTileKey key = matches(request, NETHER_KEY, NETHER) || live ? null : new BiomeTileKey(request);
+        boolean live =
+                dimensionWorld != null && dimensionWorld.getWorldInfo().getSeed() == request.seed;
+        BiomeTileKey key =
+                matches(request, NETHER_KEY, NETHER) || live ? null : new BiomeTileKey(request);
         int[] cached = key == null ? null : biomeTileCache.get(key);
         if (cached != null) {
             Response response = Response.ok();
@@ -559,8 +780,11 @@ final class BiomeWorkerServer implements Closeable {
         // the unzoomed GenLayer or repeatedly discovering End islands adds work.
         if (matches(request, END_KEY, END)
                 || matches(request, MOON_KEY, MoonBiomeSampler.configuredDimensionId())
-                || (request.step == 4 && matches(request, TWILIGHT_FOREST_KEY,
-                        TwilightForestBiomeSampler.configuredDimensionId()))) {
+                || (request.step == 4
+                        && matches(
+                                request,
+                                TWILIGHT_FOREST_KEY,
+                                TwilightForestBiomeSampler.configuredDimensionId()))) {
             Response response = sampleOtherBiomePatch(request);
             if (key != null) biomeTileCache.put(key, response.ids.clone());
             return response;
@@ -568,14 +792,25 @@ final class BiomeWorkerServer implements Closeable {
         if (request.otherSampling == null) {
             request.samplingWorld = context;
             request.otherWorld = dimensionWorld;
-            request.otherSampling = new BiomeSamplingJob(request.x, request.z, request.width, request.height,
-                    request.step, (x, z, width, height) -> {
-                        Request patch = new Request();
-                        patch.seed = request.seed; patch.dimension = request.dimension;
-                        patch.dimensionKey = request.dimensionKey; patch.step = request.step;
-                        patch.x = x; patch.z = z; patch.width = width; patch.height = height;
-                        return sampleOtherBiomePatch(patch).ids;
-                    });
+            request.otherSampling =
+                    new BiomeSamplingJob(
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            request.step,
+                            (x, z, width, height) -> {
+                                Request patch = new Request();
+                                patch.seed = request.seed;
+                                patch.dimension = request.dimension;
+                                patch.dimensionKey = request.dimensionKey;
+                                patch.step = request.step;
+                                patch.x = x;
+                                patch.z = z;
+                                patch.width = width;
+                                patch.height = height;
+                                return sampleOtherBiomePatch(patch).ids;
+                            });
         } else if (request.samplingWorld != context || request.otherWorld != dimensionWorld) {
             throw new IllegalStateException("World changed during biome query; retry");
         }
@@ -589,8 +824,16 @@ final class BiomeWorkerServer implements Closeable {
     private Response sampleOtherBiomePatch(Request request) {
         if (AdditionalDimensionBiomes.supports(request.dimensionKey)) {
             Response response = Response.ok();
-            response.ids = additionalDimensionBiomes.sample(request.seed, request.dimension, request.dimensionKey,
-                    request.x, request.z, request.width, request.height, request.step);
+            response.ids =
+                    additionalDimensionBiomes.sample(
+                            request.seed,
+                            request.dimension,
+                            request.dimensionKey,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            request.step);
             return response;
         }
         if (matches(request, NETHER_KEY, NETHER)) {
@@ -606,9 +849,7 @@ final class BiomeWorkerServer implements Closeable {
             return response;
         }
         if (matches(
-                request,
-                TWILIGHT_FOREST_KEY,
-                TwilightForestBiomeSampler.configuredDimensionId())) {
+                request, TWILIGHT_FOREST_KEY, TwilightForestBiomeSampler.configuredDimensionId())) {
             return sampleTwilightForestBiomes(request);
         }
         if (SpaceDimensionSampler.supports(request.dimensionKey, request.dimension)) {
@@ -616,15 +857,16 @@ final class BiomeWorkerServer implements Closeable {
                 spaceDimensionSampler = new SpaceDimensionSampler();
             }
             Response response = Response.ok();
-            response.ids = spaceDimensionSampler.sample(
-                    request.seed,
-                    request.dimension,
-                    request.dimensionKey,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height,
-                    request.step);
+            response.ids =
+                    spaceDimensionSampler.sample(
+                            request.seed,
+                            request.dimension,
+                            request.dimensionKey,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            request.step);
             return response;
         }
         return sampleOverworldBiomes(request);
@@ -632,10 +874,7 @@ final class BiomeWorkerServer implements Closeable {
 
     private static void remapBiomeIds(int[] biomeIds, String dimensionKey) {
         for (int index = 0; index < biomeIds.length; index++) {
-            biomeIds[index] =
-                    SpaceDimensionSampler.displayBiomeId(
-                            dimensionKey,
-                            biomeIds[index]);
+            biomeIds[index] = SpaceDimensionSampler.displayBiomeId(dimensionKey, biomeIds[index]);
         }
     }
 
@@ -647,17 +886,14 @@ final class BiomeWorkerServer implements Closeable {
                 throw new IllegalArgumentException(
                         "Twilight Forest quarter-resolution coordinates must align to four blocks");
             }
-            ids = sampler.getQuarterResolutionBiomeIds(
-                    request.x >> 2,
-                    request.z >> 2,
-                    request.width,
-                    request.height);
+            ids =
+                    sampler.getQuarterResolutionBiomeIds(
+                            request.x >> 2, request.z >> 2, request.width, request.height);
         } else if (request.step == 1) {
             ids = new int[request.width * request.height];
             for (int row = 0; row < request.height; row++) {
                 for (int column = 0; column < request.width; column++) {
-                    BiomeGenBase biome =
-                            sampler.getBiomeAt(request.x + column, request.z + row);
+                    BiomeGenBase biome = sampler.getBiomeAt(request.x + column, request.z + row);
                     if (biome == null) {
                         throw new IllegalStateException(
                                 "Twilight Forest sampler returned no biome at "
@@ -669,8 +905,7 @@ final class BiomeWorkerServer implements Closeable {
                 }
             }
         } else {
-            throw new IllegalArgumentException(
-                    "Twilight Forest biome step must be 1 or 4");
+            throw new IllegalArgumentException("Twilight Forest biome step must be 1 or 4");
         }
         Response response = Response.ok();
         response.ids = ids;
@@ -682,21 +917,22 @@ final class BiomeWorkerServer implements Closeable {
             endStructurePredictor = new EndStructurePredictor();
         }
         Response response = Response.ok();
-        response.ids = endStructurePredictor.sampleBiomes(
-                request.seed,
-                request.x,
-                request.z,
-                request.width,
-                request.height,
-                request.step);
+        response.ids =
+                endStructurePredictor.sampleBiomes(
+                        request.seed,
+                        request.x,
+                        request.z,
+                        request.width,
+                        request.height,
+                        request.step);
         return response;
     }
 
     private Response sampleOverworldBiomes(Request request) {
+        if (OverworldGenerator.isSmooth(request.generator) && Rwg2ParallelSupport.available())
+            return sampleParallelSmoothBiomes(request);
         WorldServer world = DimensionManager.getWorld(request.dimension);
-        boolean useLiveWorld = world != null
-                && world.getSeed() == request.seed
-                && SurfaceBiomeSamplers.isRwg(world.getWorldChunkManager());
+        boolean useLiveWorld = OverworldGenerator.matches(world, request.seed, request.generator);
         BiomeTileKey cacheKey = useLiveWorld ? null : new BiomeTileKey(request);
         int[] cached = cacheKey == null ? null : biomeTileCache.get(cacheKey);
         if (cached != null) {
@@ -704,22 +940,29 @@ final class BiomeWorkerServer implements Closeable {
             response.ids = cached.clone();
             return response;
         }
-        SurfaceBiomeSampler sampler =
-                useLiveWorld
-                        ? getSurfaceBiomeSampler(world)
-                        : getArbitrarySeedSampler(request.seed);
+        SurfaceBiomeSampler sampler = getSampler(request);
         if (request.sampling == null) {
             request.samplingWorld = world;
             request.samplingManager = world == null ? null : world.getWorldChunkManager();
             request.samplingSampler = sampler;
-            OverworldTileCache cache = useLiveWorld ? liveTilePredictions : new OverworldTileCache(1);
-            request.sampling = cache.begin(useLiveWorld ? world : sampler, sampler,
-                    request.x, request.z, request.width, request.height, request.step,
-                    (x, z) -> useLiveWorld && world.blockExists(x, 0, z) ? world.getBiomeGenForCoords(x, z).biomeID : -1,
-                    (x, z) -> sampler.getPredictedBiomeAt(x, z).biomeID);
-        } else if (request.samplingWorld != world || request.samplingSampler != sampler
+            OverworldTileCache cache =
+                    useLiveWorld ? liveTilePredictions : new OverworldTileCache(1);
+            request.sampling =
+                    cache.begin(
+                            useLiveWorld ? world : sampler,
+                            sampler,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            request.step,
+                            (x, z) -> useLiveWorld ? StoredBiomeAccess.at(world, x, z) : -1,
+                            (x, z) -> sampler.getPredictedBiomeAt(x, z).biomeID);
+        } else if (request.samplingWorld != world
+                || request.samplingSampler != sampler
                 || (world != null && request.samplingManager != world.getWorldChunkManager())) {
-            throw new IllegalStateException("World changed during biome query; retry in the current world");
+            throw new IllegalStateException(
+                    "World changed during biome query; retry in the current world");
         }
         if (!request.sampling.advance(queryDeadline)) throw YieldQuery.INSTANCE;
         Response response = Response.ok();
@@ -729,9 +972,69 @@ final class BiomeWorkerServer implements Closeable {
         return response;
     }
 
-    /** Read-only diagnostic: compare predictions to actual, already loaded chunks.
-     * Uses exact block coordinates (no map-cell centre offset). Unknown/unloaded
-     * positions are -1 in BOTH arrays, not "successful" prediction comparisons.
+    /** Only preparation and the authoritative loaded-chunk overlay execute on this thread. */
+    private Response sampleParallelSmoothBiomes(Request request) {
+        WorldServer world = DimensionManager.getWorld(request.dimension);
+        boolean simplex = OverworldGenerator.simplex();
+        BiomeTileKey key = new BiomeTileKey(request);
+        if (!request.parallelInitialized) {
+            request.parallelInitialized = true;
+            request.samplingWorld = world;
+            request.samplingManager = world == null ? null : world.getWorldChunkManager();
+            request.parallelSimplex = simplex;
+            request.parallelPrediction = biomeTileCache.get(key);
+            if (request.parallelPrediction == null) {
+                request.parallelJob =
+                        smoothSamplingPool.submit(
+                                request.seed,
+                                simplex,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                request.step,
+                                request.parallelism,
+                                request.wakeQuery);
+                // No arithmetic has begun while waiting for capacity. Capture the current
+                // world again when a released sampler wakes this request.
+                if (request.parallelJob == null) request.parallelInitialized = false;
+                throw AwaitQuery.INSTANCE;
+            }
+        } else if (world != request.samplingWorld
+                || simplex != request.parallelSimplex
+                || (world != null && world.getWorldChunkManager() != request.samplingManager)) {
+            throw new IllegalStateException(
+                    "World changed during background biome query; retry in the current world");
+        }
+        if (request.parallelPrediction == null) {
+            if (!request.parallelJob.result.isDone()) throw AwaitQuery.INSTANCE;
+            request.parallelPrediction = request.parallelJob.result.join();
+            biomeTileCache.put(key, request.parallelPrediction);
+        }
+        boolean live = OverworldGenerator.matches(world, request.seed, request.generator);
+        if (live) {
+            if (request.parallelOverlay == null)
+                request.parallelOverlay =
+                        new PredictedBiomeOverlay(
+                                request.parallelPrediction,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.step,
+                                (x, z) -> StoredBiomeAccess.at(world, x, z));
+            if (!request.parallelOverlay.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+        }
+        Response response = Response.ok();
+        response.ids = live ? request.parallelOverlay.result : request.parallelPrediction.clone();
+        if (request.profile && request.parallelJob != null)
+            response.backgroundMillis = request.parallelJob.computeMillis;
+        return response;
+    }
+
+    /**
+     * Read-only diagnostic: compare predictions to actual, already loaded chunks. Uses exact block
+     * coordinates (no map-cell centre offset). Unknown/unloaded positions are -1 in BOTH arrays,
+     * not "successful" prediction comparisons.
      */
     private Response compareLoadedOverworldBiomes(Request request) {
         validateRequest(request);
@@ -739,15 +1042,17 @@ final class BiomeWorkerServer implements Closeable {
             throw new IllegalArgumentException("compare_biomes supports only the overworld");
         }
         WorldServer world = DimensionManager.getWorld(OVERWORLD);
-        if (world == null || world.getSeed() != request.seed || !SurfaceBiomeSamplers.isRwg(world.getWorldChunkManager())) {
-            throw new IllegalArgumentException("compare_biomes requires a loaded RWG overworld with the requested seed");
+        if (!OverworldGenerator.matches(world, request.seed, request.generator)) {
+            throw new IllegalArgumentException(
+                    "compare_biomes requires a loaded overworld with the requested seed and"
+                            + " generator");
         }
-        SurfaceBiomeSampler sampler = getSurfaceBiomeSampler(world);
+        SurfaceBiomeSampler sampler = getSampler(request);
         Response response = Response.ok();
         response.biomeSource = "loaded-chunk-comparison";
         response.ids = new int[request.width * request.height];
         response.actualIds = new int[response.ids.length];
-        response.predictionPipeline = "rwg-adaptive-biome-dependencies-and-native-replay";
+        response.predictionPipeline = sampler.predictionStats();
         response.predictions = new SurfaceBiomeSampler.Prediction[response.ids.length];
         java.util.Arrays.fill(response.ids, -1);
         java.util.Arrays.fill(response.actualIds, -1);
@@ -755,9 +1060,9 @@ final class BiomeWorkerServer implements Closeable {
             for (int column = 0; column < request.width; column++) {
                 int x = request.x + column * request.step;
                 int z = request.z + row * request.step;
-                if (world.blockExists(x, 0, z)) {
+                if (StoredBiomeAccess.at(world, x, z) >= 0) {
                     int index = row * request.width + column;
-                    response.actualIds[index] = world.getBiomeGenForCoords(x, z).biomeID;
+                    response.actualIds[index] = StoredBiomeAccess.at(world, x, z);
                     response.predictions[index] = sampler.describePrediction(x, z);
                     response.ids[index] = response.predictions[index].predictedId;
                 }
@@ -791,29 +1096,32 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     /**
-     * AMIDST draws the overworld at one map pixel per four blocks. Use the
-     * center of that display cell as its deterministic representative. The old
-     * four-corner vote performed four times as much RWG work and could select a
-     * biome that did not correspond to the displayed coordinate.
+     * AMIDST draws the overworld at one map pixel per four blocks. Use the center of that display
+     * cell as its deterministic representative. The old four-corner vote performed four times as
+     * much RWG work and could select a biome that did not correspond to the displayed coordinate.
      */
-    private BiomeGenBase sampleDisplayedBiome(
-            SurfaceBiomeSampler sampler,
-            int x,
-            int z,
-            int step) {
+    private BiomeGenBase sampleDisplayedBiome(SurfaceBiomeSampler sampler, int x, int z, int step) {
         int offset = step == 4 ? 2 : 0;
         return sampler.getBiomeAt(x + offset, z + offset);
     }
 
     private Response sampleSpawn(Request request) {
         if (request.dimension != 0) {
-            throw new IllegalArgumentException("spawn prediction supports only overworld dimension 0");
+            throw new IllegalArgumentException(
+                    "spawn prediction supports only overworld dimension 0");
         }
         Response response = Response.ok();
         WorldServer world = DimensionManager.getWorld(0);
-        net.minecraft.util.ChunkCoordinates saved = SavedWorldSpawn.read(world, request.seed);
+        net.minecraft.util.ChunkCoordinates saved =
+                SavedWorldSpawn.read(
+                        OverworldGenerator.matches(world, request.seed, request.generator)
+                                ? world
+                                : null,
+                        request.seed);
         if (saved != null) {
-            response.spawnX = saved.posX; response.spawnY = saved.posY; response.spawnZ = saved.posZ;
+            response.spawnX = saved.posX;
+            response.spawnY = saved.posY;
+            response.spawnZ = saved.posZ;
             response.spawnSource = "RECORDED";
             return response;
         }
@@ -823,11 +1131,17 @@ final class BiomeWorkerServer implements Closeable {
             response.spawnSource = "UNAVAILABLE";
             return response;
         }
-        SpawnSearch.Job search = spawnSearches.get(request.seed, providerName);
+        SpawnSearch.Job search =
+                spawnSearches.get(
+                        request.seed,
+                        providerName,
+                        OverworldGenerator.identity(request.generator),
+                        () -> getSampler(request));
         // Keep the job when a client times out: the next poll resumes, rather than
         // restarting a thousand terrain checks. Only detached preview arrays are used.
         if (!search.advance(queryDeadline)) throw YieldQuery.INSTANCE;
-        response.spawnX = search.x; response.spawnZ = search.z;
+        response.spawnX = search.x;
+        response.spawnZ = search.z;
         response.spawnSource = "ESTIMATED";
         return response;
     }
@@ -843,20 +1157,19 @@ final class BiomeWorkerServer implements Closeable {
                 moonStructurePredictor = new MoonStructurePredictor();
             }
             Response response = Response.ok();
-            response.structures = moonStructurePredictor.predict(
-                    request.seed,
-                    request.dimension,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height,
-                    MoonBiomeSampler.isVillageGenerationEnabled());
+            response.structures =
+                    moonStructurePredictor.predict(
+                            request.seed,
+                            request.dimension,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            MoonBiomeSampler.isVillageGenerationEnabled());
             return response;
         }
         if (matches(
-                request,
-                TWILIGHT_FOREST_KEY,
-                TwilightForestBiomeSampler.configuredDimensionId())) {
+                request, TWILIGHT_FOREST_KEY, TwilightForestBiomeSampler.configuredDimensionId())) {
             if (request.vanillaDungeonsOnly) {
                 throw new IllegalArgumentException(
                         "vanilla spawner dungeon prediction supports only overworld dimension 0");
@@ -865,13 +1178,14 @@ final class BiomeWorkerServer implements Closeable {
                 twilightForestFeaturePredictor = new TwilightForestFeaturePredictor();
             }
             Response response = Response.ok();
-            response.structures = twilightForestFeaturePredictor.predict(
-                    request.seed,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height,
-                    getArbitrarySeedTwilightSampler(request.seed));
+            response.structures =
+                    twilightForestFeaturePredictor.predict(
+                            request.seed,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            getArbitrarySeedTwilightSampler(request.seed));
             return response;
         }
         if (SpaceDimensionSampler.supports(request.dimensionKey, request.dimension)) {
@@ -883,14 +1197,15 @@ final class BiomeWorkerServer implements Closeable {
                 spaceStructurePredictor = new SpaceStructurePredictor();
             }
             Response response = Response.ok();
-            response.structures = spaceStructurePredictor.predict(
-                    request.seed,
-                    request.dimension,
-                    request.dimensionKey,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height);
+            response.structures =
+                    spaceStructurePredictor.predict(
+                            request.seed,
+                            request.dimension,
+                            request.dimensionKey,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height);
             if (SpaceDimensionSampler.matches(
                     request.dimensionKey,
                     "bartworks:ross128b",
@@ -909,22 +1224,16 @@ final class BiomeWorkerServer implements Closeable {
                 endStructurePredictor = new EndStructurePredictor();
             }
             Response response = Response.ok();
-            response.structures = endStructurePredictor.predict(
-                    request.seed,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height);
+            response.structures =
+                    endStructurePredictor.predict(
+                            request.seed, request.x, request.z, request.width, request.height);
             try {
                 if (endAsteroidPredictor == null) {
                     endAsteroidPredictor = new EndAsteroidPredictor();
                 }
-                response.structures.addAll(endAsteroidPredictor.predict(
-                        request.seed,
-                        request.x,
-                        request.z,
-                        request.width,
-                        request.height));
+                response.structures.addAll(
+                        endAsteroidPredictor.predict(
+                                request.seed, request.x, request.z, request.width, request.height));
             } catch (RuntimeException e) {
                 AmidstGtnhWorkerLog.LOG.warn(
                         "GT End asteroid prediction is unavailable; continuing with End structures",
@@ -941,17 +1250,19 @@ final class BiomeWorkerServer implements Closeable {
                 modStructurePredictor = new ModStructurePredictor();
             }
             Response response = Response.ok();
-            response.structures = modStructurePredictor.predict(
-                    request.seed,
-                    request.dimension,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height);
+            response.structures =
+                    modStructurePredictor.predict(
+                            request.seed,
+                            request.dimension,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height);
             addOreVeinPredictions(response, request);
             return response;
         }
-        SurfaceBiomeSampler sampler = getSampler(request.seed, request.dimension);
+        if (OverworldGenerator.isSmooth(request.generator)) return sampleRwg2Structures(request);
+        SurfaceBiomeSampler sampler = getSampler(request);
         if (rwgStructurePredictor == null) {
             rwgStructurePredictor = new RwgStructurePredictor();
         }
@@ -968,19 +1279,22 @@ final class BiomeWorkerServer implements Closeable {
                             request.width + DUNGEON_STRUCTURE_MARGIN * 2,
                             request.height + DUNGEON_STRUCTURE_MARGIN * 2,
                             sampler);
-            response.structures = vanillaDungeonPredictor.predict(
-                    request.seed,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height,
-                    sampler,
-                    nearbyRwgStructures);
+            response.structures =
+                    vanillaDungeonPredictor.predict(
+                            request.seed,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            sampler,
+                            nearbyRwgStructures);
             return response;
         }
         if (request.structureResults == null) {
-            if (request.structureGroup != null && !"standard".equals(request.structureGroup)
-                    && !"thaumcraft".equals(request.structureGroup)) throw new IllegalArgumentException("Unknown structure group");
+            if (request.structureGroup != null
+                    && !"standard".equals(request.structureGroup)
+                    && !"thaumcraft".equals(request.structureGroup))
+                throw new IllegalArgumentException("Unknown structure group");
             request.structureResults = new ArrayList<>();
             request.samplingSampler = sampler;
             if ("thaumcraft".equals(request.structureGroup)) request.structureStage = 3;
@@ -988,36 +1302,73 @@ final class BiomeWorkerServer implements Closeable {
             throw new IllegalStateException("World changed during structure prediction; retry");
         }
         if (request.structureStage == 0) {
-            request.structureResults.addAll(rwgStructurePredictor.predict(request.seed,
-                    request.x, request.z, request.width, request.height, sampler,
-                    request.accuracyJob != null));
+            if (request.selection().rwg())
+                request.structureResults.addAll(
+                        rwgStructurePredictor.predict(
+                                request.seed,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                sampler,
+                                request.accuracyJob != null,
+                                request.selection()));
             request.structureStage++;
         }
         if (System.nanoTime() >= queryDeadline) throw YieldQuery.INSTANCE;
         if (request.structureStage == 1) {
-            if (roguelikeDungeonPredictor == null) roguelikeDungeonPredictor = new RoguelikeDungeonPredictor();
-            request.structureResults.addAll(roguelikeDungeonPredictor.predict(request.seed, request.dimension,
-                    request.x, request.z, request.width, request.height, sampler));
+            if (request.selection().wants("ROGUELIKE_DUNGEON")) {
+                if (roguelikeDungeonPredictor == null)
+                    roguelikeDungeonPredictor = new RoguelikeDungeonPredictor();
+                request.structureResults.addAll(
+                        roguelikeDungeonPredictor.predict(
+                                request.seed,
+                                request.dimension,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                sampler));
+            }
             request.structureStage++;
         }
         if (System.nanoTime() >= queryDeadline) throw YieldQuery.INSTANCE;
         if (request.structureStage == 2) {
-            if (modStructurePredictor == null) modStructurePredictor = new ModStructurePredictor();
-            request.structureResults.addAll(modStructurePredictor.predict(request.seed, request.dimension,
-                    request.x, request.z, request.width, request.height));
+            if (request.selection().mods()) {
+                if (modStructurePredictor == null)
+                    modStructurePredictor = new ModStructurePredictor();
+                request.structureResults.addAll(
+                        modStructurePredictor.predict(
+                                request.seed,
+                                request.dimension,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                request.selection()));
+            }
             request.structureStage++;
         }
-        if ("standard".equals(request.structureGroup)) {
+        if ("standard".equals(request.structureGroup) || !request.selection().thaumcraft()) {
             response.structures = request.structureResults;
             return response;
         }
         if (request.thaumcraftJob == null) {
-            if (thaumcraftStructurePredictor == null) thaumcraftStructurePredictor = new ThaumcraftStructurePredictor();
-            request.thaumcraftJob = thaumcraftStructurePredictor.begin(request.seed, request.dimension,
-                    request.x, request.z, request.width, request.height, sampler);
+            if (thaumcraftStructurePredictor == null)
+                thaumcraftStructurePredictor = new ThaumcraftStructurePredictor();
+            request.thaumcraftJob =
+                    thaumcraftStructurePredictor.begin(
+                            request.seed,
+                            request.dimension,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            sampler);
         }
         if (!request.thaumcraftJob.advance(queryDeadline)) throw YieldQuery.INSTANCE;
-        request.structureResults.addAll(request.thaumcraftJob.result);
+        for (RoguelikeDungeonPredictor.StructureDescriptor candidate : request.thaumcraftJob.result)
+            if (request.selection().accepts(candidate)) request.structureResults.add(candidate);
         response.structures = request.structureResults;
         return response;
     }
@@ -1027,13 +1378,14 @@ final class BiomeWorkerServer implements Closeable {
             if (oreVeinPredictor == null) {
                 oreVeinPredictor = new OreVeinPredictor();
             }
-            response.structures.addAll(oreVeinPredictor.predict(
-                    request.seed,
-                    request.dimension,
-                    request.x,
-                    request.z,
-                    request.width,
-                    request.height));
+            response.structures.addAll(
+                    oreVeinPredictor.predict(
+                            request.seed,
+                            request.dimension,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height));
         } catch (RuntimeException e) {
             // An incompatible GT ore API must not make the entire dimension
             // unusable. Other structures and the biome map remain available,
@@ -1045,8 +1397,19 @@ final class BiomeWorkerServer implements Closeable {
         }
     }
 
-    private SurfaceBiomeSampler getSampler(long seed, int dimension) {
-        WorldServer world = DimensionManager.getWorld(dimension);
+    private SurfaceBiomeSampler getSampler(Request request) {
+        long seed = request.seed;
+        if (OverworldGenerator.isSmooth(request.generator)) {
+            boolean simplex = OverworldGenerator.simplex();
+            String key = seed + ":" + simplex;
+            SurfaceBiomeSampler sampler = smoothSamplers.get(key);
+            if (sampler == null) {
+                sampler = new Rwg2SurfaceBiomeSampler(seed, simplex);
+                smoothSamplers.put(key, sampler);
+            }
+            return sampler;
+        }
+        WorldServer world = DimensionManager.getWorld(request.dimension);
         return world != null
                         && world.getSeed() == seed
                         && SurfaceBiomeSamplers.isRwg(world.getWorldChunkManager())
@@ -1109,8 +1472,7 @@ final class BiomeWorkerServer implements Closeable {
             sampler = new TwilightForestBiomeSampler(seed);
             arbitrarySeedTwilightSamplers.put(key, sampler);
             AmidstGtnhWorkerLog.LOG.info(
-                    "Prepared Twilight Forest magic-map preview context for seed {}",
-                    key);
+                    "Prepared Twilight Forest magic-map preview context for seed {}", key);
         }
         return sampler;
     }
@@ -1131,9 +1493,7 @@ final class BiomeWorkerServer implements Closeable {
                         request,
                         TWILIGHT_FOREST_KEY,
                         TwilightForestBiomeSampler.configuredDimensionId())
-                && !SpaceDimensionSampler.supports(
-                        request.dimensionKey,
-                        request.dimension)) {
+                && !SpaceDimensionSampler.supports(request.dimensionKey, request.dimension)) {
             throw new IllegalArgumentException(
                     "biome prediction does not support dimension " + request.dimension);
         }
@@ -1142,7 +1502,8 @@ final class BiomeWorkerServer implements Closeable {
         }
         long samples = (long) request.width * (long) request.height;
         if (samples > MAX_SAMPLES) {
-            throw new IllegalArgumentException("query exceeds the " + MAX_SAMPLES + " sample limit");
+            throw new IllegalArgumentException(
+                    "query exceeds the " + MAX_SAMPLES + " sample limit");
         }
         long lastX = (long) request.x + (long) (request.width - 1) * request.step;
         long lastZ = (long) request.z + (long) (request.height - 1) * request.step;
@@ -1150,7 +1511,8 @@ final class BiomeWorkerServer implements Closeable {
                 || lastX > Integer.MAX_VALUE
                 || lastZ < Integer.MIN_VALUE
                 || lastZ > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("query coordinates overflow the Minecraft integer coordinate range");
+            throw new IllegalArgumentException(
+                    "query coordinates overflow the Minecraft integer coordinate range");
         }
     }
 
@@ -1163,9 +1525,7 @@ final class BiomeWorkerServer implements Closeable {
                         request,
                         TWILIGHT_FOREST_KEY,
                         TwilightForestBiomeSampler.configuredDimensionId())
-                && !SpaceDimensionSampler.supports(
-                        request.dimensionKey,
-                        request.dimension)) {
+                && !SpaceDimensionSampler.supports(request.dimensionKey, request.dimension)) {
             throw new IllegalArgumentException(
                     "structure prediction does not support dimension " + request.dimension);
         }
@@ -1178,13 +1538,240 @@ final class BiomeWorkerServer implements Closeable {
                 || lastX > Integer.MAX_VALUE
                 || lastZ < Integer.MIN_VALUE
                 || lastZ > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("structure query coordinates overflow the Minecraft integer range");
+            throw new IllegalArgumentException(
+                    "structure query coordinates overflow the Minecraft integer range");
         }
     }
 
+    private Response sampleRwg2Dungeons(Request request) {
+        SurfaceBiomeSampler sampler = getSampler(request);
+        if (Rwg2ParallelSupport.available()
+                && ((Rwg2SurfaceBiomeSampler) sampler).prepareUnderground()) {
+            if (request.poiJob == null) {
+                if (smoothStructurePredictor == null)
+                    smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+                final List<RoguelikeDungeonPredictor.StructureDescriptor> nearby =
+                        smoothStructurePredictor.predict(
+                                request.seed,
+                                request.x - DUNGEON_STRUCTURE_MARGIN,
+                                request.z - DUNGEON_STRUCTURE_MARGIN,
+                                request.width + DUNGEON_STRUCTURE_MARGIN * 2,
+                                request.height + DUNGEON_STRUCTURE_MARGIN * 2,
+                                sampler);
+                request.poiSimplex = OverworldGenerator.simplex();
+                request.poiJob =
+                        smoothPoiPool.submit(
+                                request.seed,
+                                request.poiSimplex,
+                                request.parallelism,
+                                context -> {
+                                    if (!context.backgroundCaves)
+                                        throw new IllegalStateException(
+                                                "RWG2 cave generator changed during query");
+                                    return context.dungeons.predict(
+                                            request.seed,
+                                            request.x,
+                                            request.z,
+                                            request.width,
+                                            request.height,
+                                            context.sampler,
+                                            nearby);
+                                },
+                                request.wakeQuery);
+                throw AwaitQuery.INSTANCE;
+            }
+            if (request.poiSimplex != OverworldGenerator.simplex())
+                throw new IllegalStateException("World changed during dungeon prediction; retry");
+            if (!request.poiJob.result.isDone()) throw AwaitQuery.INSTANCE;
+            Response response = Response.ok();
+            response.structures = request.poiJob.result.join();
+            return response;
+        }
+        if (request.smoothDungeons == null) {
+            if (smoothStructurePredictor == null)
+                smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+            if (smoothDungeonPredictor == null)
+                smoothDungeonPredictor = new VanillaDungeonPredictor("rwg2.config.ConfigRWG");
+            List<RoguelikeDungeonPredictor.StructureDescriptor> nearby =
+                    smoothStructurePredictor.predict(
+                            request.seed,
+                            request.x - DUNGEON_STRUCTURE_MARGIN,
+                            request.z - DUNGEON_STRUCTURE_MARGIN,
+                            request.width + DUNGEON_STRUCTURE_MARGIN * 2,
+                            request.height + DUNGEON_STRUCTURE_MARGIN * 2,
+                            sampler);
+            request.samplingSampler = sampler;
+            request.smoothDungeons =
+                    smoothDungeonPredictor.begin(
+                            request.seed,
+                            request.x,
+                            request.z,
+                            request.width,
+                            request.height,
+                            sampler,
+                            nearby);
+        } else if (request.samplingSampler != sampler)
+            throw new IllegalStateException("World changed during dungeon prediction; retry");
+        if (!request.smoothDungeons.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+        Response response = Response.ok();
+        response.structures = request.smoothDungeons.result;
+        return response;
+    }
+
+    private Response sampleRwg2Structures(Request request) {
+        if (request.vanillaDungeonsOnly) return sampleRwg2Dungeons(request);
+        if (request.structureGroup != null
+                && !"standard".equals(request.structureGroup)
+                && !"thaumcraft".equals(request.structureGroup))
+            throw new IllegalArgumentException("Unknown structure group");
+        Rwg2SurfaceBiomeSampler sampler = (Rwg2SurfaceBiomeSampler) getSampler(request);
+        WorldServer world = DimensionManager.getWorld(OVERWORLD);
+        if (!OverworldGenerator.matches(world, request.seed, request.generator)) world = null;
+        if (request.structureResults == null) {
+            request.samplingSampler = sampler;
+            request.samplingWorld = world;
+            request.structureResults = new ArrayList<>();
+            if ("thaumcraft".equals(request.structureGroup)) request.structureStage = 4;
+        } else if (request.samplingSampler != sampler || request.samplingWorld != world) {
+            throw new IllegalStateException(
+                    "World changed during RWG2 structure prediction; retry");
+        }
+        if (request.structureStage == 0) {
+            if (request.selection().rwg()) {
+                if (smoothStructurePredictor == null)
+                    smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+                request.structureResults.addAll(
+                        smoothStructurePredictor.predict(
+                                request.seed,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                sampler,
+                                request.accuracyJob != null,
+                                request.selection()));
+            }
+            request.structureStage++;
+        }
+        if (System.nanoTime() >= queryDeadline) throw YieldQuery.INSTANCE;
+        if (request.structureStage == 1) {
+            if (request.selection().wants("ROGUELIKE_DUNGEON")) {
+                if (roguelikeDungeonPredictor == null)
+                    roguelikeDungeonPredictor = new RoguelikeDungeonPredictor();
+                request.structureResults.addAll(
+                        roguelikeDungeonPredictor.predict(
+                                request.seed,
+                                OVERWORLD,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                sampler));
+            }
+            request.structureStage++;
+        }
+        if (System.nanoTime() >= queryDeadline) throw YieldQuery.INSTANCE;
+        if (request.structureStage == 2) {
+            if (request.selection().mods()) {
+                if (modStructurePredictor == null)
+                    modStructurePredictor = new ModStructurePredictor();
+                request.structureResults.addAll(
+                        modStructurePredictor.predict(
+                                request.seed,
+                                OVERWORLD,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                request.selection()));
+            }
+            request.structureStage++;
+        }
+        if (request.structureStage == 3 && !request.selection().landmarks())
+            request.structureStage++;
+        if (request.structureStage == 3) {
+            if (Rwg2ParallelSupport.available()) {
+                if (request.poiJob == null) {
+                    request.poiSimplex = OverworldGenerator.simplex();
+                    request.poiJob =
+                            smoothPoiPool.submit(
+                                    request.seed,
+                                    request.poiSimplex,
+                                    request.parallelism,
+                                    context -> {
+                                        Rwg2StructurePredictor.Job job =
+                                                context.landmarks.begin(
+                                                        request.x,
+                                                        request.z,
+                                                        request.width,
+                                                        request.height,
+                                                        null,
+                                                        request.selection());
+                                        job.advance(Long.MAX_VALUE);
+                                        return job.result;
+                                    },
+                                    request.wakeQuery);
+                    throw AwaitQuery.INSTANCE;
+                }
+                if (request.poiSimplex != OverworldGenerator.simplex())
+                    throw new IllegalStateException(
+                            "World changed during RWG2 structure prediction; retry");
+                if (!request.poiJob.result.isDone()) throw AwaitQuery.INSTANCE;
+                // Only the game thread reads loaded-world block evidence.
+                request.structureResults.addAll(
+                        sampler.structures().withEvidence(request.poiJob.result.join(), world));
+            } else {
+                if (request.rwg2Structures == null)
+                    request.rwg2Structures =
+                            sampler.structures()
+                                    .begin(
+                                            request.x,
+                                            request.z,
+                                            request.width,
+                                            request.height,
+                                            world,
+                                            request.selection());
+                if (!request.rwg2Structures.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+                request.structureResults.addAll(request.rwg2Structures.result);
+            }
+            request.structureStage++;
+        }
+        if (!"standard".equals(request.structureGroup) && request.selection().thaumcraft()) {
+            if (request.thaumcraftJob == null) {
+                if (thaumcraftStructurePredictor == null)
+                    thaumcraftStructurePredictor = new ThaumcraftStructurePredictor();
+                request.thaumcraftJob =
+                        thaumcraftStructurePredictor.begin(
+                                request.seed,
+                                OVERWORLD,
+                                request.x,
+                                request.z,
+                                request.width,
+                                request.height,
+                                sampler);
+            }
+            if (!request.thaumcraftJob.advance(queryDeadline)) throw YieldQuery.INSTANCE;
+            for (RoguelikeDungeonPredictor.StructureDescriptor candidate :
+                    request.thaumcraftJob.result)
+                if (request.selection().accepts(candidate)) request.structureResults.add(candidate);
+        }
+        Response response = Response.ok();
+        response.structures = request.structureResults;
+        return response;
+    }
+
     private static List<BiomeDescriptor> getBiomeDescriptors() {
+        return getBiomeDescriptors(
+                BiomeGenBase.getBiomeGenArray(),
+                SpaceDimensionSampler.scopedBiomeSources(),
+                AdditionalDimensionBiomes.sources());
+    }
+
+    static List<BiomeDescriptor> getBiomeDescriptors(
+            BiomeGenBase[] registry,
+            Map<String, BiomeGenBase[]> spaceSources,
+            Map<String, BiomeGenBase[]> additionalSources) {
         Map<Integer, BiomeDescriptor> byId = new TreeMap<Integer, BiomeDescriptor>();
-        BiomeGenBase[] registry = BiomeGenBase.getBiomeGenArray();
         for (int registryIndex = 0; registryIndex < registry.length; registryIndex++) {
             BiomeGenBase biome = registry[registryIndex];
             if (biome != null) {
@@ -1195,48 +1782,34 @@ final class BiomeWorkerServer implements Closeable {
                 }
                 if (previous != null && !previous.name.equals(descriptor.name)) {
                     AmidstGtnhWorkerLog.LOG.warn(
-                            "Biome id {} is registered as both '{}' and '{}'; using the canonical registry entry",
+                            "Biome id {} is registered as both '{}' and '{}'; using the canonical"
+                                    + " registry entry",
                             Integer.valueOf(descriptor.id),
                             previous.name,
                             descriptor.name);
                 }
             }
         }
-        for (Map.Entry<String, BiomeGenBase[]> scoped :
-                SpaceDimensionSampler.scopedBiomeSources().entrySet()) {
+        for (Map.Entry<String, BiomeGenBase[]> scoped : spaceSources.entrySet()) {
             for (BiomeGenBase biome : scoped.getValue()) {
                 BiomeDescriptor source = new BiomeDescriptor(biome);
                 int displayId =
-                        SpaceDimensionSampler.displayBiomeId(
-                                scoped.getKey(),
-                                biome.biomeID);
-                byId.put(
-                        Integer.valueOf(displayId),
-                        new BiomeDescriptor(displayId, source));
+                        SpaceDimensionSampler.displayBiomeId(scoped.getKey(), biome.biomeID);
+                byId.put(Integer.valueOf(displayId), new BiomeDescriptor(displayId, source));
             }
         }
-        for (Map.Entry<String, BiomeGenBase[]> entry : AdditionalDimensionBiomes.sources().entrySet()) {
+        for (Map.Entry<String, BiomeGenBase[]> entry : additionalSources.entrySet()) {
             // Planet-local instances can share a raw ID with another mod.
             for (BiomeGenBase biome : entry.getValue()) {
                 int id = AdditionalDimensionBiomes.displayId(entry.getKey(), biome.biomeID);
                 byId.put(id, new BiomeDescriptor(id, new BiomeDescriptor(biome)));
             }
         }
+        addSyntheticEndBiome(byId, EndStructurePredictor.END_VOID_BIOME, "GTNH End Void", 0x17131F);
         addSyntheticEndBiome(
-                byId,
-                EndStructurePredictor.END_VOID_BIOME,
-                "GTNH End Void",
-                0x17131F);
+                byId, EndStructurePredictor.CENTRAL_END_BIOME, "GTNH Central End", 0xC9C29B);
         addSyntheticEndBiome(
-                byId,
-                EndStructurePredictor.CENTRAL_END_BIOME,
-                "GTNH Central End",
-                0xC9C29B);
-        addSyntheticEndBiome(
-                byId,
-                EndStructurePredictor.INFESTED_FOREST_BIOME,
-                "HEE Infested Forest",
-                0x526B48);
+                byId, EndStructurePredictor.INFESTED_FOREST_BIOME, "HEE Infested Forest", 0x526B48);
         addSyntheticEndBiome(
                 byId,
                 EndStructurePredictor.BURNING_MOUNTAINS_BIOME,
@@ -1247,50 +1820,26 @@ final class BiomeWorkerServer implements Closeable {
                 EndStructurePredictor.ENCHANTED_ISLAND_BIOME,
                 "HEE Enchanted Island",
                 0x6575A8);
+        addSyntheticSpaceBiome(byId, SpaceDimensionSampler.CERES_DISPLAY_BIOME, "Ceres", 0x858B91);
         addSyntheticSpaceBiome(
-                byId,
-                SpaceDimensionSampler.CERES_DISPLAY_BIOME,
-                "Ceres",
-                0x858B91);
+                byId, SpaceDimensionSampler.ENCELADUS_DISPLAY_BIOME, "Enceladus", 0xD4E2E8);
         addSyntheticSpaceBiome(
-                byId,
-                SpaceDimensionSampler.ENCELADUS_DISPLAY_BIOME,
-                "Enceladus",
-                0xD4E2E8);
-        addSyntheticSpaceBiome(
-                byId,
-                SpaceDimensionSampler.PROTEUS_DISPLAY_BIOME,
-                "Proteus",
-                0x667782);
+                byId, SpaceDimensionSampler.PROTEUS_DISPLAY_BIOME, "Proteus", 0x667782);
         return new ArrayList<BiomeDescriptor>(byId.values());
     }
 
     private static void addSyntheticEndBiome(
-            Map<Integer, BiomeDescriptor> byId,
-            int id,
-            String name,
-            int color) {
+            Map<Integer, BiomeDescriptor> byId, int id, String name, int color) {
         byId.put(
                 Integer.valueOf(id),
                 new BiomeDescriptor(id, name, color, 0.5F, 0.0F, 0.1F, 0.2F, "END"));
     }
 
     private static void addSyntheticSpaceBiome(
-            Map<Integer, BiomeDescriptor> byId,
-            int id,
-            String name,
-            int color) {
+            Map<Integer, BiomeDescriptor> byId, int id, String name, int color) {
         byId.put(
                 Integer.valueOf(id),
-                new BiomeDescriptor(
-                        id,
-                        name,
-                        color,
-                        0.2F,
-                        0.0F,
-                        0.1F,
-                        0.2F,
-                        "GALAXYSPACE"));
+                new BiomeDescriptor(id, name, color, 0.2F, 0.0F, 0.1F, 0.2F, "GALAXYSPACE"));
     }
 
     private static ThreadFactory daemonFactory(final String name) {
@@ -1319,12 +1868,23 @@ final class BiomeWorkerServer implements Closeable {
         if (serverSocket != null) {
             try {
                 serverSocket.close();
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
         }
         clientExecutor.shutdownNow();
+        for (Socket socket : clientSockets) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+        }
+        clientSockets.clear();
+        smoothSamplingPool.close();
+        smoothPoiPool.close();
         FutureTask<Response> pending;
         while ((pending = serverThreadQueries.poll()) != null) pending.cancel(false);
         arbitrarySeedSamplers.clear();
+        smoothSamplers.clear();
         arbitrarySeedNetherSamplers.clear();
         arbitrarySeedTwilightSamplers.clear();
         biomeTileCache.clear();
@@ -1337,6 +1897,17 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private static final class Request {
+        private int parallelism;
+        private transient Runnable wakeQuery;
+        private transient volatile Rwg2SamplingPool.Job parallelJob;
+        private transient volatile Rwg2PoiPool<PoiContext>.Job<
+                        List<RoguelikeDungeonPredictor.StructureDescriptor>>
+                poiJob;
+        private transient boolean poiSimplex;
+        private transient boolean parallelInitialized, parallelSimplex;
+        private transient int[] parallelPrediction;
+        private transient PredictedBiomeOverlay parallelOverlay;
+        private String generator;
         private String category, expectedSession;
         private transient AccuracyValidation.Job accuracyJob;
         private String cacheStamp;
@@ -1348,6 +1919,8 @@ final class BiomeWorkerServer implements Closeable {
         private transient List<RoguelikeDungeonPredictor.StructureDescriptor> structureResults;
         private transient int structureStage;
         private transient ThaumcraftStructurePredictor.Job thaumcraftJob;
+        private transient Rwg2StructurePredictor.Job rwg2Structures;
+        private transient VanillaDungeonPredictor.Job smoothDungeons;
         private transient OverworldTileCache.Sampling sampling;
         private transient BiomeSamplingJob otherSampling;
         private transient WorldServer otherWorld;
@@ -1372,10 +1945,20 @@ final class BiomeWorkerServer implements Closeable {
         private long sinceRevision;
         private boolean vanillaDungeonsOnly;
         private String structureGroup;
+        private List<String> structureTypes;
+        private transient StructureSelection selectedStructures;
+
+        StructureSelection selection() {
+            if (selectedStructures == null)
+                selectedStructures = StructureSelection.of(structureTypes);
+            return selectedStructures;
+        }
+
         private List<JourneyMapWaypointImporter.WaypointDescriptor> waypoints;
     }
 
     private static final class BiomeTileKey {
+        private final String generator;
 
         private final long seed;
         private final int dimension;
@@ -1387,6 +1970,7 @@ final class BiomeWorkerServer implements Closeable {
         private final int step;
 
         private BiomeTileKey(Request request) {
+            generator = OverworldGenerator.identity(request.generator);
             seed = request.seed;
             dimension = request.dimension;
             dimensionKey = request.dimensionKey;
@@ -1406,7 +1990,8 @@ final class BiomeWorkerServer implements Closeable {
                 return false;
             }
             BiomeTileKey key = (BiomeTileKey) other;
-            return seed == key.seed
+            return generator.equals(key.generator)
+                    && seed == key.seed
                     && dimension == key.dimension
                     && java.util.Objects.equals(dimensionKey, key.dimensionKey)
                     && x == key.x
@@ -1418,7 +2003,7 @@ final class BiomeWorkerServer implements Closeable {
 
         @Override
         public int hashCode() {
-            int result = (int) (seed ^ (seed >>> 32));
+            int result = 31 * generator.hashCode() + (int) (seed ^ (seed >>> 32));
             result = 31 * result + dimension;
             result = 31 * result + java.util.Objects.hashCode(dimensionKey);
             result = 31 * result + x;
@@ -1431,10 +2016,12 @@ final class BiomeWorkerServer implements Closeable {
     }
 
     private static final class Response {
+        private Double backgroundMillis;
         private amidst.gtnh.validation.AccuracyReport accuracy;
         private String cacheIdentity, cacheStamp, worldSession;
 
-        private java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
+        private java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo>
+                prospectingDimensions;
         private amidst.gtnh.prospecting.ProspectingData.Tile prospecting;
 
         // Null values are omitted from normal responses by Gson.
@@ -1524,9 +2111,12 @@ final class BiomeWorkerServer implements Closeable {
 
         private BiomeDescriptor(BiomeGenBase biome) {
             id = biome.biomeID;
-            boolean moon = biome.getClass().getName().startsWith(
-                    "micdoodle8.mods.galacticraft.core.world.gen.BiomeGen")
-                    && "moon".equalsIgnoreCase(biome.biomeName);
+            boolean moon =
+                    biome.getClass()
+                                    .getName()
+                                    .startsWith(
+                                            "micdoodle8.mods.galacticraft.core.world.gen.BiomeGen")
+                            && "moon".equalsIgnoreCase(biome.biomeName);
             name = moon ? "Moon" : biome.biomeName;
             mapColor = biome.color;
             temperature = biome.temperature;

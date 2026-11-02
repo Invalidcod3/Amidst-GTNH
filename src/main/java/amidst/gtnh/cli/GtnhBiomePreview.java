@@ -37,7 +37,7 @@ public final class GtnhBiomePreview {
 				options.timeoutMillis);
 		GtnhWorkerInfo info = client.getWorkerInfo();
 		int dimension = options.resolveDimension(info);
-		int[] ids = client.sampleBiomes(
+		int[] ids = client.withGenerator(info.worldType()).sampleBiomes(
 				info.seed(),
 				dimension,
 				options.x,

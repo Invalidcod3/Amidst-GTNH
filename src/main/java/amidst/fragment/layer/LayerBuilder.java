@@ -120,7 +120,12 @@ public class LayerBuilder {
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_STRONGHOLD,         Dimension.OVERWORLD, false, settings.showGtnhStrongholds);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_VILLAGE,            Dimension.OVERWORLD, false, settings.showGtnhVillages);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_MINESHAFT,          Dimension.OVERWORLD, false, settings.showGtnhMineshafts);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_OCEAN_MONUMENT, Dimension.OVERWORLD, false, settings.showGtnhOceanMonuments);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_RWG2_TWILIGHT_PORTAL, Dimension.OVERWORLD, false, settings.showRwg2TwilightPortals);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_RWG2_NETHER_PORTAL, Dimension.OVERWORLD, false, settings.showRwg2NetherPortals);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_LOOTGAMES_DUNGEON,  Dimension.OVERWORLD, false, settings.showGtnhLootGamesDungeons);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_RWG2_LAVA_CAVE_GAME, Dimension.OVERWORLD, false, settings.showRwg2LavaCaveGames);
+		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_RWG2_RIVER_CHAMBER_GAME, Dimension.OVERWORLD, false, settings.showRwg2RiverChamberGames);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_TINKERS_SLIME_ISLAND, Dimension.OVERWORLD, false, settings.showGtnhTinkersSlimeIslands);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON, Dimension.OVERWORLD, false, settings.showGtnhVanillaSpawnerDungeons);
 		declare(world, settings, declarations, enabledLayers, LayerIds.GTNH_THAUMCRAFT_AURA_NODE, Dimension.OVERWORLD, false, settings.showGtnhThaumcraftAuraNodes);
@@ -235,7 +240,12 @@ public class LayerBuilder {
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_STRONGHOLD),         world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.STRONGHOLD)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_VILLAGE),            world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.VILLAGE)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_MINESHAFT),          world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.MINESHAFT)),
+				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_OCEAN_MONUMENT), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.OCEAN_MONUMENT)),
+				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_RWG2_TWILIGHT_PORTAL), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL)),
+				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_RWG2_NETHER_PORTAL), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.RWG2_NETHER_PORTAL)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_LOOTGAMES_DUNGEON),  world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.LOOTGAMES_DUNGEON)),
+				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_RWG2_LAVA_CAVE_GAME), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.RWG2_LAVA_CAVE_GAME)),
+				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_RWG2_RIVER_CHAMBER_GAME), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.RWG2_RIVER_CHAMBER_GAME)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_TINKERS_SLIME_ISLAND), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.TINKERS_SLIME_ISLAND)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.VANILLA_SPAWNER_DUNGEON)),
 				new WorldIconLoader<>(declarations.get(LayerIds.GTNH_THAUMCRAFT_AURA_NODE), world.getGtnhOverworldStructureProducer(GtnhOverworldStructureType.THAUMCRAFT_AURA_NODE)),
@@ -305,7 +315,12 @@ public class LayerBuilder {
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_STRONGHOLD),         zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_VILLAGE),            zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_MINESHAFT),          zoom, worldIconSelection, settings.useHybridScaling),
+				new WorldIconDrawer(declarations.get(LayerIds.GTNH_OCEAN_MONUMENT), zoom, worldIconSelection, settings.useHybridScaling),
+				new WorldIconDrawer(declarations.get(LayerIds.GTNH_RWG2_TWILIGHT_PORTAL), zoom, worldIconSelection, settings.useHybridScaling),
+				new WorldIconDrawer(declarations.get(LayerIds.GTNH_RWG2_NETHER_PORTAL), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_LOOTGAMES_DUNGEON),  zoom, worldIconSelection, settings.useHybridScaling),
+				new WorldIconDrawer(declarations.get(LayerIds.GTNH_RWG2_LAVA_CAVE_GAME), zoom, worldIconSelection, settings.useHybridScaling),
+				new WorldIconDrawer(declarations.get(LayerIds.GTNH_RWG2_RIVER_CHAMBER_GAME), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_TINKERS_SLIME_ISLAND), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_VANILLA_SPAWNER_DUNGEON), zoom, worldIconSelection, settings.useHybridScaling),
 				new WorldIconDrawer(declarations.get(LayerIds.GTNH_THAUMCRAFT_AURA_NODE), zoom, worldIconSelection, settings.useHybridScaling),

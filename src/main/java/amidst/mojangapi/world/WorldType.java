@@ -15,7 +15,9 @@ public enum WorldType {
 	FLAT         ("Flat",         "flat",         LegacySymbolicNames.FIELD_WORLD_TYPE_FLAT),
 	LARGE_BIOMES ("Large Biomes", "large-biomes", LegacySymbolicNames.FIELD_WORLD_TYPE_LARGE_BIOMES),
 	AMPLIFIED    ("Amplified",    "amplified",    LegacySymbolicNames.FIELD_WORLD_TYPE_AMPLIFIED),
-	CUSTOMIZED   ("Customized",   "customized",   LegacySymbolicNames.FIELD_WORLD_TYPE_CUSTOMIZED);
+	CUSTOMIZED   ("Customized",   "customized",   LegacySymbolicNames.FIELD_WORLD_TYPE_CUSTOMIZED),
+    RWG2_SMOOTH  ("RWG2 Smooth",  "rwg2-smooth",  "RWG2_CONTINENTS"),
+    RWG_ALPHA    ("RWG-Alpha",    "rwg-alpha",    "RWG");
 	// @formatter:on
 
 	public static final String PROMPT_EACH_TIME = "Prompt each time";

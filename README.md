@@ -8,6 +8,11 @@
 果应视为地图辅助信息；已经加载的区块会使用Minecraft 内存中的群系
 数据，未生成区域则由当前模组和配置重放生成算法。
 
+**v0.4.0 正式版 / 协议 31** 支持 GTNH 2.9.0 的 **RWG2 Smooth（大陆模式）**，并保留 **RWG-Alpha**。
+精细底图使用独立后台采样，结构按开启的图层计算；底图完成后结构查询可扩展到最多四路。
+本版还修正扩展群系编号、移植群系配色、出生点估算和大视野下的矿脉／流体加载。
+完整更新与兼容性范围见 [v0.4.0 发布说明](docs/release-v0.4.0.md)，使用方法见 [操作指南](docs/usage.md)。
+
 ## 功能
 - 主世界的生物群系和主要结构定位。
 - 下界的生物群系和结构定位。
@@ -21,15 +26,14 @@
 
 ## 使用方法
 
-1. 将 `amidst-gtnh-worker-v0.3.2.jar` 放入 GTNH 的 `mods` 目录。
+1. 将 `amidst-gtnh-worker-v0.4.0.jar` 放入 GTNH 的 `mods` 目录。
 2. 启动 GTNH 到主菜单即可。Worker 首次生成的配置默认 `enabled=true`，
    当次启动即生效，无需为生成配置再重启一次。已有配置中主动设置的
    `enabled=false` 仍会保留；需要启用时请在启动前改为 `true`。
-3. 直接双击渲染器 JAR 即进入 GTNH 模式，也可执行根目录
-   的 `run-viewer.bat`，或使用：
+3. 直接双击渲染器 JAR 即进入 GTNH 模式，也可使用：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar
+java -jar build/release/amidst-gtnh-biomes-v0.4.0.jar
 ```
 
 GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等参数，
@@ -43,11 +47,13 @@ GTNH 模式下可以直接添加 `-gtnh-worker-port`、`-gtnh-worker-token` 等�
 原版 Amidst 的 Minecraft profile 模式只能通过命令行显式开启：
 
 ```powershell
-java -jar build/release/amidst-gtnh-biomes-v0.3.2.jar -vanilla
+java -jar build/release/amidst-gtnh-biomes-v0.4.0.jar -vanilla
 ```
 
 `-profile`、`-mcjar`、`-mcjson` 需要与 `-vanilla` 一起使用。
-请配套更新主程序与 Worker；两端协议版本不兼容时会明确报错。
+请使用本版配套的 Viewer 和 Worker；替换 Worker 后重启游戏，`mods` 中只保留一份。
+本版发行号、包内版本和文件名统一为 **0.4.0**。开发阶段的 0.4.1–0.4.12 是内部试用编号，
+相关记录保留在[开发历史](docs/archive/rwg2-development-history.md)，不作为正式版升级顺序。
 
 ## 构建
 
@@ -79,7 +85,7 @@ Linux/macOS：
 
 - 构建环境：Worker 模组需用 Java 25 构建，Amidst 可用 Java 21 或 Java 25 构建。
 - Amidst 主程序：Java 17 或更高版本。
-- worker 运行环境：目前2.9.x相关版本可用，2.8.x 或 2.7.x 暂未测试，大概率也是可用的。
+- Worker 当前优先适配 GTNH 2.9.0 的 RWG2 2.0.6，同时保留 RWG-Alpha；其他 RWG2 版本需单独核对，2.8.x / 2.7.x 尚未做整包验证。
 
-worker 绑定本机回环地址(LocalHosts)，不会主动向外网开放服务。端口和共享口令可以在
+Worker 绑定本机回环地址（localhost），不会主动向外网开放服务。端口和共享口令可以在
 `amidstgtnhworker.cfg` 或对应的 JVM 参数中配置。

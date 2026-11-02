@@ -11,6 +11,27 @@ import java.util.Random;
 
 public class SpawnSearchCacheTest {
     @Test
+    public void generatorsAndNoiseModesNeverReuseAnotherSpawnWalk() {
+        SpawnSearchCache cache = new SpawnSearchCache(seed -> new Sampler());
+        SpawnSearch.Job alpha = cache.get(8, SpawnSearch.VANILLA);
+        SpawnSearch.Job perlin =
+                cache.get(8, SpawnSearch.VANILLA, "RWG2_CONTINENTS:PERLIN", Sampler::new);
+        SpawnSearch.Job simplex =
+                cache.get(8, SpawnSearch.VANILLA, "RWG2_CONTINENTS:OPENSIMPLEX", Sampler::new);
+        assertNotSame(alpha, perlin);
+        assertNotSame(perlin, simplex);
+        assertSame(
+                perlin,
+                cache.get(
+                        8,
+                        SpawnSearch.VANILLA,
+                        "RWG2_CONTINENTS:PERLIN",
+                        () -> {
+                            throw new AssertionError();
+                        }));
+    }
+
+    @Test
     public void pollingRetainsSearchProgressAndSeparatesProviders() {
         final int[] created = {0};
         SpawnSearchCache cache =

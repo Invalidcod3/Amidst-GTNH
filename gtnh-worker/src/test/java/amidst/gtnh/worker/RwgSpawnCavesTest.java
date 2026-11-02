@@ -17,6 +17,14 @@ import java.util.Arrays;
 import java.util.BitSet;
 
 public class RwgSpawnCavesTest {
+    @Test
+    public void customCaveGeneratorsStayOnGameThreadUnlessDisabled() {
+        assertTrue(new RwgSpawnCaves(null, new MapGenCaves(), () -> true).supportsBackground());
+        MapGenBase custom = new MapGenCaves() {};
+        assertFalse(new RwgSpawnCaves(null, custom, () -> true).supportsBackground());
+        assertTrue(new RwgSpawnCaves(null, custom, () -> false).supportsBackground());
+    }
+
     private static final Block SOLID = new Block(Material.rock) {};
 
     @Test

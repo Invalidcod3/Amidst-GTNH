@@ -17,9 +17,14 @@ final class RwgSpawnCaves {
     private final BooleanSupplier enabled;
 
     static RwgSpawnCaves create(World world) throws ReflectiveOperationException {
+        return create(world, "rwg.config.ConfigRWG");
+    }
+
+    static RwgSpawnCaves create(World world, String configClass)
+            throws ReflectiveOperationException {
         if (world == null)
             throw new IllegalArgumentException("Spawn cave replay needs a seed-only world");
-        Field setting = Class.forName("rwg.config.ConfigRWG").getField("generateCaves");
+        Field setting = Class.forName(configClass).getField("generateCaves");
         // Same registration hook as ChunkGeneratorRealistic's constructor. Never borrow a live
         // world's mutable map generator or dispatch population/structure generation.
         MapGenBase generator = TerrainGen.getModdedMapGen(new MapGenCaves(), EventType.CAVE);
@@ -43,5 +48,10 @@ final class RwgSpawnCaves {
 
     void carve(int chunkX, int chunkZ, Block[] blocks) {
         if (enabled.getAsBoolean()) generator.func_151539_a(null, world, chunkX, chunkZ, blocks);
+    }
+
+    boolean supportsBackground() {
+        // Arbitrary TerrainGen replacements may touch a live world or shared mutable state.
+        return !enabled.getAsBoolean() || generator.getClass() == MapGenCaves.class;
     }
 }

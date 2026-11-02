@@ -195,6 +195,17 @@ public class Drawer {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void drawLayers() {
+        java.util.ArrayList<Fragment> frameFragments = new java.util.ArrayList<>();
+        for (FragmentGraphItem item : graph) {
+            Fragment fragment = item.getFragment();
+            fragment.beginDisplayFrame();
+            frameFragments.add(fragment);
+        }
+        try { drawPinnedLayers(); }
+        finally { for (Fragment fragment : frameFragments) fragment.endDisplayFrame(); }
+    }
+
+    private void drawPinnedLayers() {
 		Dimension displayedDimension = dimensionSetting.get();
 		for (FragmentDrawer drawer : drawers) {
 			if (drawer.isEnabled()) {

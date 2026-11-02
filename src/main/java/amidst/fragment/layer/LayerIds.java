@@ -75,6 +75,11 @@ public class LayerIds {
 	public static final int GTNH_DEEP_DARK_DUNGEON = 81;
 	public static final int GTNH_ANUBIS_ROBOT_VILLAGE = 82;
 	public static final int GTNH_HORUS_OBSIDIAN_PYRAMID = 83;
-	public static final int NUMBER_OF_LAYERS        = 84;
+	public static final int GTNH_OCEAN_MONUMENT = 84;
+	public static final int GTNH_RWG2_TWILIGHT_PORTAL = 85;
+	public static final int GTNH_RWG2_NETHER_PORTAL = 86;
+	public static final int GTNH_RWG2_LAVA_CAVE_GAME = 87;
+	public static final int GTNH_RWG2_RIVER_CHAMBER_GAME = 88;
+	public static final int NUMBER_OF_LAYERS        = 89;
 	// @formatter:on
 }

@@ -20,6 +20,8 @@ public class AlphaInitializer extends FragmentLoader {
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	@Override
 	public void load(Dimension dimension, Fragment fragment) {
+        // Refreshing an existing picture must not fade the retained snapshot to black.
+        if (fragment.hasDisplayData(dimension)) return;
 		if (fragmentFadingSetting.get()) {
 			fragment.setAlpha(0.0f);
 		} else {

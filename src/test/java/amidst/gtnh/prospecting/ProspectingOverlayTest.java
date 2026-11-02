@@ -69,11 +69,11 @@ public class ProspectingOverlayTest {
             public List<DimensionInfo> dimensions() { return List.of(info); }
             public Tile load(Dimension dimension, int x, int z, String mode) {
                 assertFalse("Socket work must never run on Swing", SwingUtilities.isEventDispatchThread());
-                assertEquals(0, Math.floorMod(x, 256)); assertEquals(0, Math.floorMod(z, 256));
+                assertEquals(0, Math.floorMod(x, 512)); assertEquals(0, Math.floorMod(z, 512));
                 calls.incrementAndGet();
                 Tile tile = new Tile(); tile.deposits = new ArrayList<>();
                 if (mode.equals("FLUID")) {
-                    for (int dx = 0; dx < 2; dx++) for (int dz = 0; dz < 2; dz++) {
+                    for (int dx = 0; dx < 4; dx++) for (int dz = 0; dz < 4; dz++) {
                         Deposit d = new Deposit(); d.x = x + dx * 128; d.z = z + dz * 128; d.size = 128;
                         d.name = dx == 0 ? "Natural Gas" : "Heavy Oil"; d.id = d.name;
                         d.color = dx == 0 ? 0xf8b85a : 0x6885e4; d.source = "INITIAL";
@@ -81,7 +81,7 @@ public class ProspectingOverlayTest {
                         for (int i = 0; i < 64; i++) d.amounts[i] = 70 + i * 3;
                         tile.deposits.add(d);
                     }
-                } else for (int dx = 24; dx < 256; dx += 48) for (int dz = 24; dz < 256; dz += 48) {
+                } else for (int dx = 24; dx < 456; dx += 48) for (int dz = 24; dz < 456; dz += 48) {
                     Deposit d = new Deposit(); d.x=x+dx; d.z=z+dz; d.size=16;
                     d.name = dx % 96 == 24 ? "Magnetite Vein" : "Copper Vein";
                     d.id=d.name; d.materials="Iron, Gold, Magnetite"; d.color=0xcf8253; d.minY=40; d.maxY=80;
@@ -152,6 +152,79 @@ public class ProspectingOverlayTest {
             assertNotEquals(detail.getRGB(500,380), filtered.getRGB(500,380));
         } finally { graph.dispose(); manager.clear(); }
     }
+    @Test(timeout = 10000) public void wideRwg2ViewLoadsFromCenterWithTwoBoundedRequests() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(2);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var active = new AtomicInteger(); var peak = new AtomicInteger();
+        List<Point> requested = java.util.Collections.synchronizedList(new ArrayList<>());
+        DimensionInfo info = new DimensionInfo(); info.key = "Overworld"; info.ores = info.fluids = true;
+        var source = new ProspectingOverlay.DataSource() {
+            public List<DimensionInfo> dimensions() { return List.of(info); }
+            public Tile load(Dimension d, int x, int z, String mode) throws Exception {
+                int running = active.incrementAndGet(); peak.accumulateAndGet(running, Math::max);
+                requested.add(new Point(x,z)); entered.countDown();
+                try { assertTrue(release.await(3, java.util.concurrent.TimeUnit.SECONDS)); }
+                finally { active.decrementAndGet(); }
+                Tile tile = new Tile(); tile.deposits = List.of(); return tile;
+            }
+        };
+        var settings = new AmidstSettings(new MemoryPreferences());
+        var manager = new FragmentManager(List.of(), LayerIds.NUMBER_OF_LAYERS, Setting.createDummy(1));
+        var graph = new FragmentGraph(List.of(), manager);
+        var zoom = new Zoom(Setting.createDummy(true));
+        var translator = new FragmentGraphToScreenTranslator(graph, zoom);
+        try (var overlay = new ProspectingOverlay(source,settings,translator,zoom)) {
+            SwingUtilities.invokeAndWait(() -> {
+                zoom.adjustZoom(new Point(),8); zoom.skipFading(); translator.update(1200,800);
+                translator.centerOn(CoordinatesInWorld.origin()); settings.markerMode.set(MarkerMode.FLUID);
+            });
+            settle(overlay);
+            assertTrue("Wide view must start loading, rather than silently remaining blank", entered.await(1,java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(2, requested.size()); assertEquals(2, peak.get());
+            for (Point p : requested) assertTrue("First requests should be at the view center: " + p,
+                    Math.abs(p.x + 256) <= 256 && Math.abs(p.y + 256) <= 256);
+            release.countDown();
+            SwingUtilities.invokeAndWait(() -> { settings.markerMode.set(MarkerMode.ORES); overlay.refresh(); });
+            settle(overlay);
+            assertTrue(requested.size() > 2); assertEquals(2,peak.get());
+        } finally { release.countDown(); graph.dispose(); manager.clear(); }
+    }
+
+    @Test(timeout = 10000) public void cancelledModeCannotPublishLateTilesIntoTheCache() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        AtomicInteger fluids = new AtomicInteger();
+        DimensionInfo info = new DimensionInfo(); info.key="Overworld"; info.ores=info.fluids=true;
+        var source = new ProspectingOverlay.DataSource() {
+            public List<DimensionInfo> dimensions() { return List.of(info); }
+            public Tile load(Dimension d,int x,int z,String mode) throws Exception {
+                if (mode.equals("FLUID") && fluids.incrementAndGet()==1) {
+                    entered.countDown();
+                    boolean finished=false;
+                    while (!finished) try { finished=release.await(3,java.util.concurrent.TimeUnit.SECONDS); }
+                    catch (InterruptedException ignored) { /* Simulate a late socket response. */ }
+                }
+                Tile result=new Tile(); result.deposits=List.of(); return result;
+            }
+        };
+        var settings=new AmidstSettings(new MemoryPreferences());
+        var manager=new FragmentManager(List.of(),LayerIds.NUMBER_OF_LAYERS,Setting.createDummy(1));
+        var graph=new FragmentGraph(List.of(),manager);
+        var zoom=new Zoom(Setting.createDummy(true));
+        var translator=new FragmentGraphToScreenTranslator(graph,zoom);
+        try(var overlay=new ProspectingOverlay(source,settings,translator,zoom)) {
+            SwingUtilities.invokeAndWait(() -> {
+                zoom.adjustZoom(new Point(),-40); zoom.skipFading(); translator.update(1200,800);
+                translator.centerOn(CoordinatesInWorld.from(256,256)); settings.markerMode.set(MarkerMode.FLUID);
+            });
+            settle(overlay); assertTrue(entered.await(1,java.util.concurrent.TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> settings.markerMode.set(MarkerMode.ORES));
+            settle(overlay); release.countDown(); settle(overlay);
+            SwingUtilities.invokeAndWait(() -> settings.markerMode.set(MarkerMode.FLUID));
+            settle(overlay); assertEquals("Old cancelled tile must be queried again",2,fluids.get());
+        } finally { release.countDown(); graph.dispose(); manager.clear(); }
+    }
+
     private static BufferedImage settle(ProspectingOverlay overlay) throws Exception {
         BufferedImage image = new BufferedImage(1200, 800, BufferedImage.TYPE_INT_ARGB);
         for (int i = 0; i < 24; i++) {

@@ -11,6 +11,8 @@
 
 ## 旧发布与版本迭代
 
+- [RWG2 开发与性能调查（正式 v0.4.0 前的内部试用记录）](rwg2-development-history.md)
+
 - [Amidst-GTNH v0.3.1](release-v0.3.1.md)
 
 - [v35：刷新黑块与群系预测性能](gtnh-v35-performance.md)

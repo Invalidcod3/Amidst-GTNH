@@ -12,6 +12,17 @@ import org.junit.Test;
 import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
 
 public class GtnhWorldStatePollerTest {
+    @Test public void startupKeepsNoChangeQuietButPreservesWorkerHistoryOverflowRefresh() {
+        for (boolean full : new boolean[] {false, true}) {
+            ArrayDeque<Runnable> tasks = new ArrayDeque<>();
+            GtnhWorldStatePoller poller = new GtnhWorldStatePoller(since -> {
+                assertEquals(0, since);
+                return new GtnhWorldState(5000, full, new int[0], new int[0]);
+            }, tasks::add, () -> 1L);
+            assertNull(poller.poll()); tasks.remove().run();
+            assertEquals(full, poller.poll().fullRefresh());
+        }
+    }
 	@Test(timeout = 5000)
 	public void slowPollDoesNotBlockOrSubmitDuplicatesAndChangesKeepTheirRevision() {
 		ArrayDeque<Runnable> tasks = new ArrayDeque<>();
@@ -24,13 +35,15 @@ public class GtnhWorldStatePollerTest {
 		for (int i = 0; i < 100; i++) assertNull(poller.poll());
 		assertEquals(1, tasks.size());
 		tasks.remove().run();
-		assertTrue(poller.poll().fullRefresh()); // Include tiles loaded before the asynchronous baseline.
+        GtnhWorldState initial = poller.poll();
+        assertFalse(initial.fullRefresh());
+        assertArrayEquals(new int[] {7}, initial.chunkXs()); // No initial changes are lost.
 		clock.addAndGet(1_000_000_000L);
 		assertNull(poller.poll());
 		tasks.remove().run();
 		GtnhWorldState change = poller.poll();
-		assertEquals(List.of(-1L, 1L), revisions);
-		assertEquals(3L, change.revision());
+		assertEquals(List.of(0L, 2L), revisions);
+		assertEquals(4L, change.revision());
 		assertArrayEquals(new int[] {7}, change.chunkXs());
 		assertArrayEquals(new int[] {-9}, change.chunkZs());
 	}

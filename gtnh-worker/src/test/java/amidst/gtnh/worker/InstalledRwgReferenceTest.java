@@ -54,8 +54,11 @@ public class InstalledRwgReferenceTest {
         byte[] hash = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(Paths.get(jarPath)));
         StringBuilder hex = new StringBuilder();
         for (byte b : hash) hex.append(String.format("%02x", b & 255));
-        assertEquals("Update the reference adapter deliberately when RWG changes",
-                "9be5c54b56cf2a08d507a5568dec1537ca6f5e958a2ce9d39e32207870a6bd6f", hex.toString());
+        org.junit.Assert.assertTrue("Update the reference adapter deliberately when RWG changes",
+                Arrays.asList(
+                        "9be5c54b56cf2a08d507a5568dec1537ca6f5e958a2ce9d39e32207870a6bd6f", // 1.5.2
+                        "fb5ee6c9927729c7dc82967542205084bd54bc032139502c69967b07268925fd") // 1.5.3, GTNH 2.9.0
+                        .contains(hex.toString()));
     }
 
     @Test

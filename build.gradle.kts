@@ -1,3 +1,6 @@
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Properties
 
 plugins {
@@ -120,6 +123,11 @@ val buildWorker by tasks.registering(Exec::class) {
         "stageReleaseJar",
         "-Pgtnh.modules.codeStyle=false",
     )
+    for (property in listOf("rwg2ReferenceJar", "mcpCsvDir")) {
+        providers.gradleProperty(property).orNull?.let {
+            workerArguments += "-P$property=${file(it).absolutePath}"
+        }
+    }
     providers.gradleProperty("rwgReferenceJar").orNull?.let {
         workerArguments += "-PrwgReferenceJar=${file(it).absolutePath}"
     }
@@ -146,20 +154,43 @@ val workerJar = layout.projectDirectory.file(
     "gtnh-worker/build/release/amidst-gtnh-worker.jar",
 )
 
-// Keep logs and earlier versioned JARs: this directory may also be used to run Viewer.
+// Stage complete archives before replacing a release that may be running on Windows.
+// Keep the staged pair available if an open Viewer prevents publication.
 val assembleRelease by tasks.registering(Copy::class) {
     group = "build"
     description = "Tests and packages matching Amidst and GTNH worker JARs."
     dependsOn(tasks.test, tasks.jar, buildWorker)
-    into(layout.buildDirectory.dir("release"))
+    into(layout.buildDirectory.dir("release-staging"))
+    outputs.upToDateWhen { false }
     from(tasks.jar.flatMap { it.archiveFile })
     from(workerJar) {
         rename { workerReleaseName }
     }
     doLast {
+        if (providers.gradleProperty("stageReleaseOnly").orNull == "true") {
+            logger.lifecycle("Tested release JARs staged in $destinationDir (publication deferred).")
+            return@doLast
+        }
+        val releaseDirectory = layout.buildDirectory.dir("release").get().asFile.toPath()
+        Files.createDirectories(releaseDirectory)
+        for (name in listOf("$distributionName.jar", workerReleaseName)) {
+            val temporary = Files.createTempFile(releaseDirectory, ".release-", ".tmp")
+            try {
+                Files.copy(destinationDir.resolve(name).toPath(), temporary,
+                    StandardCopyOption.REPLACE_EXISTING)
+                Files.move(temporary, releaseDirectory.resolve(name),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING)
+            } catch (failure: IOException) {
+                throw GradleException("Cannot replace $name: ${failure.message}. Close the application using it and rerun assembleRelease. " +
+                    "The complete tested JARs remain in build/release-staging/.", failure)
+            } finally {
+                Files.deleteIfExists(temporary)
+            }
+        }
         logger.lifecycle("Release artifacts:")
-        logger.lifecycle("  ${destinationDir.resolve("$distributionName.jar")}")
-        logger.lifecycle("  ${destinationDir.resolve(workerReleaseName)}")
+        logger.lifecycle("  ${releaseDirectory.resolve("$distributionName.jar")}")
+        logger.lifecycle("  ${releaseDirectory.resolve(workerReleaseName)}")
     }
 }
 

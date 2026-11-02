@@ -39,8 +39,8 @@ public class ThreadedWorldAccessor implements WorldAccessor {
 				biomeDataMapper);
 	}
 	
-	@Override
-	public Set<Dimension> supportedDimensions() {
+    @Override
+    public Set<Dimension> supportedDimensions() {
 		return supportedDimensions;
 	}
 }

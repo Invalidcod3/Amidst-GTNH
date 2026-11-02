@@ -55,6 +55,8 @@ public class WorldBuilder {
 	public World from(
 			MinecraftInterface minecraftInterface,
 			WorldOptions worldOptions) throws MinecraftInterfaceException {
+        if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh)
+            minecraftInterface = gtnh.forWorldType(worldOptions.getWorldType());
 		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(worldOptions, minecraftInterface);
 		return create(
 				minecraftInterface,
@@ -67,6 +69,8 @@ public class WorldBuilder {
 	public World fromSaveGame(MinecraftInterface minecraftInterface, SaveGame saveGame)
 			throws IOException,
 			MinecraftInterfaceException {
+        if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh)
+            minecraftInterface = gtnh.forWorldType(WorldOptions.fromSaveGame(saveGame).getWorldType());
 		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(WorldOptions.fromSaveGame(saveGame), minecraftInterface);
 		return create(
 				minecraftInterface,
@@ -98,6 +102,7 @@ public class WorldBuilder {
 					.withValueReplacing(
 							FeatureKey.ENABLED_LAYERS,
 							createGtnhEnabledLayers(
+                                    minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface && ((amidst.gtnh.worker.GtnhMinecraftInterface) minecraftInterface).isRwg2(),
 									LayerIds.ALPHA,
 									LayerIds.BIOME_DATA,
 									LayerIds.BACKGROUND,
@@ -137,7 +142,7 @@ public class WorldBuilder {
 		return features.create(recognisedVersion);
 	}
 
-	private static List<Integer> createGtnhEnabledLayers(Integer... baseLayers) {
+	private static List<Integer> createGtnhEnabledLayers(boolean smooth, Integer... baseLayers) {
 		List<Integer> result = new ArrayList<>(Arrays.asList(baseLayers));
 		for (GtnhTwilightForestFeatureType type :
 				GtnhTwilightForestFeatureType.values()) {
@@ -151,6 +156,13 @@ public class WorldBuilder {
 				result.add(type.getLayerId());
 			}
 		}
+        if (smooth) {
+            result.add(LayerIds.GTNH_OCEAN_MONUMENT);
+            result.add(LayerIds.GTNH_RWG2_TWILIGHT_PORTAL);
+            result.add(LayerIds.GTNH_RWG2_NETHER_PORTAL);
+            result.add(LayerIds.GTNH_RWG2_LAVA_CAVE_GAME);
+            result.add(LayerIds.GTNH_RWG2_RIVER_CHAMBER_GAME);
+        }
 		return List.copyOf(result);
 	}
 

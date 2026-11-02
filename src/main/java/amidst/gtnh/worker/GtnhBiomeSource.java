@@ -24,7 +24,13 @@ public interface GtnhBiomeSource {
             int width,int height,int step,String category,String session) throws MinecraftInterfaceException {
         throw new MinecraftInterfaceException("Accuracy validation is unavailable");
     }
-	int PROTOCOL_VERSION = 25;
+	int PROTOCOL_VERSION = 31;
+
+    /** Returns a separate immutable view, so concurrent maps cannot change each other's generator. */
+    default GtnhBiomeSource withGenerator(String generator) throws MinecraftInterfaceException {
+        if ("RWG".equals(generator)) return this;
+        throw new MinecraftInterfaceException("This biome source does not support " + generator);
+    }
     default String cacheIdentity(long seed) throws MinecraftInterfaceException { return null; }
 
 	GtnhWorkerInfo getWorkerInfo() throws MinecraftInterfaceException;
@@ -93,6 +99,11 @@ public interface GtnhBiomeSource {
     default List<GtnhStructureDescriptor> sampleStructureGroup(long seed, int dimensionId, String dimensionKey,
             int x, int z, int width, int height, String group) throws MinecraftInterfaceException {
         return sampleStructures(seed, dimensionId, dimensionKey, x, z, width, height);
+    }
+
+    default List<GtnhStructureDescriptor> sampleSelectedStructures(long seed, int dimensionId, String dimensionKey,
+            int x, int z, int width, int height, String group, java.util.Set<String> types) throws MinecraftInterfaceException {
+        return sampleStructureGroup(seed, dimensionId, dimensionKey, x, z, width, height, group);
     }
 
     default List<GtnhStructureDescriptor> sampleVanillaDungeons(

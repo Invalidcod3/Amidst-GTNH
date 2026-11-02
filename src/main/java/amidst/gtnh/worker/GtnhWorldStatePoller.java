@@ -35,7 +35,7 @@ public final class GtnhWorldStatePoller {
 		this.clock = clock;
 	}
 
-	/** Returns only completed changes; the first response also refreshes tiles loaded before its baseline. */
+	/** Request retained change history initially, so startup needs only the affected tiles. */
 	public synchronized GtnhWorldState poll() {
 		if (closed) {
 			return null;
@@ -46,12 +46,12 @@ public final class GtnhWorldStatePoller {
 			}
 			try {
 				GtnhWorldState state = pending.get();
-				boolean baseline = revision < 0;
 				revision = state.revision();
 				nextPoll = clock.getAsLong() + POLL_NANOS;
-				// Tiles can now load while the initial poll is outstanding. Refresh
-				// them once so changes before this baseline are not silently missed.
-				return baseline ? new GtnhWorldState(revision, true, new int[0], new int[0]) : state;
+                // Worker requests a full refresh itself if history overflowed or the world changed.
+                // Otherwise keep the exact delta, including on startup, without an artificial
+                // full-screen cancellation after the first few tiles have appeared.
+				return state;
 			} catch (ExecutionException e) {
 				nextPoll = clock.getAsLong() + RETRY_NANOS;
 				AmidstLogger.warn(e.getCause(), "Unable to read GTNH overworld chunk state");
@@ -62,7 +62,7 @@ public final class GtnhWorldStatePoller {
 				pending = null;
 			}
 		} else if (nextPoll == 0 || clock.getAsLong() >= nextPoll) {
-			long sinceRevision = revision;
+			long sinceRevision = Math.max(0, revision);
 			pending = new FutureTask<>(() -> query.get(sinceRevision));
 			executor.accept(pending);
 		}

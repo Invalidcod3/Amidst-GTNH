@@ -22,7 +22,9 @@ import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
  */
 @ThreadSafe
 public class FragmentCache {
-	private static final int NEW_FRAGMENTS_PER_REQUEST = 1024;
+    // Constructed on the EDT: 1024 tiles allocated over 132 MiB of pixel/biome arrays at once.
+    // Small batches retain unlimited growth without pausing startup for unused buffers.
+	private static final int NEW_FRAGMENTS_PER_REQUEST = 64;
 	private static final int DEFAULT_RETAINED_TILES = 256;
 	private final List<Fragment> cache = new LinkedList<>();
 	// Last released is most recently used. Active graph tiles do not consume this limit.
@@ -34,6 +36,11 @@ public class FragmentCache {
 	private final int numberOfLayers;
 	private final int retainedLimit;
 	private long cacheHits, evictions;
+    private boolean synchronizedPublication;
+
+    public synchronized void setSynchronizedPublication(boolean enabled) {
+        synchronizedPublication = enabled;
+    }
 
 	private record Key(Dimension dimension, CoordinatesInWorld corner) {
 		static Key of(Fragment fragment) {
@@ -63,6 +70,7 @@ public class FragmentCache {
 		Fragment fragment = retained.remove(key);
 		if (fragment == null) fragment = retiring.remove(key);
 		if (fragment != null) {
+			fragment.setSynchronizedPublication(synchronizedPublication);
 			cacheHits++;
 			fragment.cancelRecycling();
 			if (fragment.getState() == Fragment.State.LOADED && !fragment.hasBiomeReloadRequested()) {
@@ -76,6 +84,7 @@ public class FragmentCache {
 			return fragment;
 		}
 		while ((fragment = availableQueue.poll()) == null) increaseSize();
+        fragment.setSynchronizedPublication(synchronizedPublication);
 		fragment.setCorner(corner);
 		fragment.prepareForLoad(dimension);
 		fragment.setState(Fragment.State.INITIALIZED);
@@ -117,16 +126,21 @@ public class FragmentCache {
 		availableQueue.offer(fragment);
 	}
 
-	public synchronized void completeLoad(Fragment fragment, Dimension dimension, boolean succeeded,
+    public synchronized void completeTerrainStage(Fragment fragment) {
+        if (!fragment.isRecyclingRequested() && !fragment.hasBiomeReloadRequested()) fragment.publishTerrain();
+        fragment.setState(Fragment.State.INITIALIZED);
+        if (!fragment.isRecyclingRequested()) loadingQueue.offer(fragment);
+    }
+
+    public synchronized void completeLoad(Fragment fragment, Dimension dimension, boolean succeeded,
 			boolean cancelled, Dimension currentDimension) {
 		boolean wanted = !fragment.isRecyclingRequested();
-		if (succeeded && dimension == currentDimension) {
+		if (succeeded && dimension == currentDimension && !fragment.hasBiomeReloadRequested()) {
 			fragment.setLoadedDimension(dimension);
 			fragment.setState(Fragment.State.LOADED);
-			if (wanted && fragment.hasBiomeReloadRequested()) loadingQueue.offer(fragment);
 		} else {
 			fragment.setState(Fragment.State.INITIALIZED);
-			if (wanted && (cancelled || dimension != currentDimension)) loadingQueue.offer(fragment);
+			if (wanted && (cancelled || dimension != currentDimension || fragment.hasBiomeReloadRequested())) loadingQueue.offer(fragment);
 		}
 	}
 
@@ -174,6 +188,19 @@ public class FragmentCache {
 		}
 	}
 
+    /** Never invalidate shared layer revisions or interrupt unrelated active writers. */
+    public synchronized void reloadOverworldTiles(Set<CoordinatesInWorld> affected) {
+        evictRetained(affected, Dimension.OVERWORLD);
+        for (Fragment fragment : cache) {
+            if (fragment.getState() != Fragment.State.UNINITIALIZED
+                    && fragment.getDataDimension() == Dimension.OVERWORLD
+                    && affected.contains(fragment.getCorner())) {
+                fragment.requestFullReload();
+                if (!fragment.isRecyclingRequested()) loadingQueue.offer(fragment);
+            }
+        }
+    }
+
 	public synchronized void reloadBiomesAllUsed() {
 		evictRetained(null);
 		for (Fragment fragment : cache) {
@@ -185,10 +212,15 @@ public class FragmentCache {
 	}
 
 	private void evictRetained(Set<CoordinatesInWorld> affected) {
+        evictRetained(affected, null);
+    }
+
+    private void evictRetained(Set<CoordinatesInWorld> affected, Dimension dimension) {
 		var entries = retained.entrySet().iterator();
 		while (entries.hasNext()) {
 			var entry = entries.next();
-			if (affected == null || affected.contains(entry.getKey().corner())) {
+			if ((affected == null || affected.contains(entry.getKey().corner()))
+                    && (dimension == null || dimension == entry.getKey().dimension())) {
 				Fragment fragment = entry.getValue();
 				entries.remove();
 				release(fragment);

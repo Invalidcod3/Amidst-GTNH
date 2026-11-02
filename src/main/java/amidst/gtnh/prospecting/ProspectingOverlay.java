@@ -23,6 +23,8 @@ import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 
 /** Screen-space prospecting renderer; all socket work is isolated from Swing. */
 public final class ProspectingOverlay implements AutoCloseable {
+    static final int TILE_SIZE = 512;
+    private static final int MAX_TILES = 512, MAX_REQUESTS = 2;
     interface DataSource {
         List<DimensionInfo> dimensions();
         default boolean hasBiomes(Dimension dimension) {
@@ -38,18 +40,19 @@ public final class ProspectingOverlay implements AutoCloseable {
     private final AmidstSettings settings;
     private final FragmentGraphToScreenTranslator translator;
     private final Zoom zoom;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+    private final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(MAX_REQUESTS, r -> {
         Thread t = new Thread(r, "GTNH prospecting"); t.setDaemon(true); return t;
     });
     private final Map<Key, Cached> tiles = new LinkedHashMap<>(32, .75f, true) {
-        protected boolean removeEldestEntry(Map.Entry<Key, Cached> e) { return size() > 256; }
+        protected boolean removeEldestEntry(Map.Entry<Key, Cached> e) { return size() > MAX_TILES; }
     };
     private final Map<String, BufferedImage> images = new LinkedHashMap<>(32, .75f, true) {
         protected boolean removeEldestEntry(Map.Entry<String, BufferedImage> e) { return size() > 512; }
     };
     private final List<Hit> hits = new ArrayList<>();
     private volatile boolean closed;
-    private Future<?> pending;
+    private static final class Request { Future<?> future; }
+    private final Map<Key, Request> pending = new HashMap<>();
     private String error = "";
     private long retryAfter;
     private Dimension displayedDimension;
@@ -63,7 +66,7 @@ public final class ProspectingOverlay implements AutoCloseable {
         this(new DataSource() {
             public List<DimensionInfo> dimensions() { return world.prospectingCatalog(); }
             public boolean hasBiomes(Dimension d) { return world.getBiomeDataOracle(d).isPresent(); }
-            public Tile load(Dimension d, int x, int z, String mode) throws Exception { return world.prospect(d, x, z, 256, 256, mode); }
+            public Tile load(Dimension d, int x, int z, String mode) throws Exception { return world.prospect(d, x, z, TILE_SIZE, TILE_SIZE, mode); }
         }, settings, translator, zoom);
     }
     ProspectingOverlay(DataSource source, AmidstSettings settings, FragmentGraphToScreenTranslator translator, Zoom zoom) {
@@ -84,13 +87,13 @@ public final class ProspectingOverlay implements AutoCloseable {
     }
     public void draw(Graphics2D target, int width, int height, Point mouse) {
         hits.clear();
-        if (closed || !active()) return;
+        if (closed) return;
+        if (!active()) { cancelRequests(); return; }
         Dimension dimension = settings.dimension.get();
         MarkerMode mode = settings.markerMode.get();
         if (dimension != displayedDimension || mode != displayedMode) {
             displayedDimension = dimension; displayedMode = mode; error = ""; retryAfter = 0;
-            if (pending != null) pending.cancel(true);
-            pending = null;
+            cancelRequests();
         }
         Graphics2D g = (Graphics2D) target.create();
         try {
@@ -104,25 +107,36 @@ public final class ProspectingOverlay implements AutoCloseable {
             }
             DimensionInfo info = dimensionInfo(dimension);
             if (info == null || !(mode == MarkerMode.ORES ? info.ores : info.fluids)) {
-                label(g, I18n.format("No {0} registered in {1}",I18n.text(mode.toString()),dimension), 15, height - 48); return;
+                label(g, I18n.format("No {0} registered in {1}",I18n.text(mode.toString()),dimension), 15, height - 104); return;
             }
             var corner = translator.screenToWorld(new Point(0, 0));
             var end = translator.screenToWorld(new Point(width, height));
-            long tx0 = Math.floorDiv(corner.getX(), 256), tz0 = Math.floorDiv(corner.getY(), 256);
-            long tx1 = Math.floorDiv(end.getX(), 256), tz1 = Math.floorDiv(end.getY(), 256);
+            long tx0 = Math.floorDiv(corner.getX(), TILE_SIZE), tz0 = Math.floorDiv(corner.getY(), TILE_SIZE);
+            long tx1 = Math.floorDiv(end.getX(), TILE_SIZE), tz1 = Math.floorDiv(end.getY(), TILE_SIZE);
             long count = (tx1 - tx0 + 1) * (tz1 - tz0 + 1);
-            if (count > 256 || tx0 < Integer.MIN_VALUE / 256 || tx1 >= Integer.MAX_VALUE / 256
-                    || tz0 < Integer.MIN_VALUE / 256 || tz1 >= Integer.MAX_VALUE / 256) {
-                label(g, "Zoom in to load prospecting data", 15, height - 48); return;
+            if (count > MAX_TILES || tx0 < Integer.MIN_VALUE / TILE_SIZE || tx1 >= Integer.MAX_VALUE / TILE_SIZE
+                    || tz0 < Integer.MIN_VALUE / TILE_SIZE || tz1 >= Integer.MAX_VALUE / TILE_SIZE) {
+                cancelRequests();
+                label(g, "Zoom in to load prospecting data", 15, height - 104); return;
             }
-            Key next = null;
+            // Drop off-screen work; an old completion cannot remove a newer request for the same key.
+            pending.entrySet().removeIf(entry -> {
+                Key key = entry.getKey();
+                if (key.x / TILE_SIZE < tx0 || key.x / TILE_SIZE > tx1 || key.z / TILE_SIZE < tz0 || key.z / TILE_SIZE > tz1) {
+                    entry.getValue().future.cancel(true); return true;
+                }
+                return false;
+            });
+            executor.purge();
+            List<Key> missing = new ArrayList<>(), expired = new ArrayList<>();
             int loaded = 0;
             String filter = settings.prospectingFilter.get();
             if (mode == MarkerMode.FLUID) grid(g, corner, end, width, height);
             for (long tz = tz0; tz <= tz1; tz++) for (long tx = tx0; tx <= tx1; tx++) {
-                Key key = new Key(dimension, mode, (int)tx * 256, (int)tz * 256);
+                Key key = new Key(dimension, mode, (int)tx * TILE_SIZE, (int)tz * TILE_SIZE);
                 Cached cached = tiles.get(key);
-                if (cached == null) { if (next == null) next = key; continue; }
+                if (cached == null) { if (!pending.containsKey(key)) missing.add(key); continue; }
+                if (!pending.containsKey(key) && System.currentTimeMillis() - cached.time > 30_000) expired.add(key);
                 loaded++;
                 for (Deposit d : cached.tile.deposits) {
                     if (!matches(d, filter, mode == MarkerMode.FLUID ? settings.prospectingMinimumFluid.get() : 0)) continue;
@@ -131,14 +145,15 @@ public final class ProspectingOverlay implements AutoCloseable {
                     else fluid(g, d, p, width, height);
                 }
             }
-            if (next == null) {
-                for (long tz = tz0; tz <= tz1 && next == null; tz++) for (long tx = tx0; tx <= tx1; tx++) {
-                    Key key = new Key(dimension, mode, (int)tx * 256, (int)tz * 256);
-                    Cached cached = tiles.get(key);
-                    if (cached != null && System.currentTimeMillis() - cached.time > 30_000) { next = key; break; }
-                }
+            double centerX = (corner.getX() + (double) end.getX()) / 2;
+            double centerZ = (corner.getY() + (double) end.getY()) / 2;
+            Comparator<Key> nearest = Comparator.comparingDouble(key ->
+                    Math.pow(key.x + TILE_SIZE / 2.0 - centerX, 2) + Math.pow(key.z + TILE_SIZE / 2.0 - centerZ, 2));
+            missing.sort(nearest); expired.sort(nearest); missing.addAll(expired);
+            if (System.currentTimeMillis() >= retryAfter) for (Key key : missing) {
+                if (pending.size() >= MAX_REQUESTS) break;
+                load(key);
             }
-            if (next != null && (pending == null || pending.isDone()) && System.currentTimeMillis() >= retryAfter) load(next);
             String status = error.isEmpty() ? I18n.format("{0} · {1}/{2} tiles",I18n.text(mode.toString()),loaded,count)
                     + " · " + I18n.text(mode == MarkerMode.FLUID ? "L/Op · zoom in for chunk values" : "outlined = recorded, dashed = predicted") : error;
             if (!filter.isEmpty()) {
@@ -149,31 +164,40 @@ public final class ProspectingOverlay implements AutoCloseable {
             }
             if (mode == MarkerMode.FLUID && settings.prospectingMinimumFluid.get() > 0)
                 status += " · " + I18n.text("minimum") + ": " + settings.prospectingMinimumFluid.get() + " L/Op";
-            label(g, status, 15, height - 48);
-            if (!source.hasBiomes(dimension)) label(g, "Prospecting map · biome background unavailable in this dimension", 15, height - 68);
+            label(g, status, 15, height - 104);
+            if (!source.hasBiomes(dimension)) label(g, "Prospecting map · biome background unavailable in this dimension", 15, height - 124);
             if (mouse != null) {
                 Hit hit = hit(mouse);
                 if (hit != null) tooltip(g, hit.deposit, mouse, width, height);
             }
         } finally { g.dispose(); }
     }
+    private void cancelRequests() {
+        if (pending.isEmpty()) return;
+        generation++;
+        for (Request request : pending.values()) request.future.cancel(true);
+        pending.clear();
+        executor.purge();
+    }
     private void load(Key key) {
         long requestedGeneration = generation;
-        pending = executor.submit(() -> {
-            try {
-                Tile tile = source.load(key.dimension, key.x, key.z, key.mode.name());
-                if (Thread.currentThread().isInterrupted()) return;
-                SwingUtilities.invokeLater(() -> {
-                    if (!closed && generation == requestedGeneration) { tiles.put(key, new Cached(tile, System.currentTimeMillis())); error = ""; }
-                });
-            } catch (Exception e) {
-                if (Thread.currentThread().isInterrupted()) return;
-                SwingUtilities.invokeLater(() -> {
-                    if (!closed && settings.dimension.get() == key.dimension && settings.markerMode.get() == key.mode) {
-                        error = "Prospecting: " + e.getMessage(); retryAfter = System.currentTimeMillis() + 5000;
-                    }
-                });
-            }
+        Request request = new Request();
+        pending.put(key, request);
+        request.future = executor.submit(() -> {
+            Tile result = null;
+            String failure = null;
+            try { result = source.load(key.dimension, key.x, key.z, key.mode.name()); }
+            catch (Exception e) { failure = e.getMessage(); }
+            Tile tile = result;
+            String message = failure;
+            SwingUtilities.invokeLater(() -> {
+                if (closed || generation != requestedGeneration || !pending.remove(key, request)) return;
+                if (tile != null) { tiles.put(key, new Cached(tile, System.currentTimeMillis())); error = ""; }
+                else {
+                    error = "Prospecting: " + message;
+                    retryAfter = System.currentTimeMillis() + 5000;
+                }
+            });
         });
     }
     private Point screen(long x, long z) {
@@ -317,8 +341,7 @@ public final class ProspectingOverlay implements AutoCloseable {
     public void refresh() {
         hits.clear();
         generation++; tiles.clear(); retryAfter = 0; error = "";
-        if (pending != null) pending.cancel(true);
-        pending = null;
+        cancelRequests();
     }
-    @Override public void close() { closed = true; executor.shutdownNow(); tiles.clear(); images.clear(); }
+    @Override public void close() { closed = true; cancelRequests(); executor.shutdownNow(); tiles.clear(); images.clear(); }
 }

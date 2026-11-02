@@ -3,6 +3,7 @@
 这里保留实现依据与精度边界。安装和当前版本统一见[当前文档](../README.md)。
 
 - [出生点预测](spawn-prediction.md)
+- [RWG2 实现、调度与精度边界](rwg2-adaptation-plan.md)
 - [要塞定位与诊断](stronghold-prediction.md)
 - [小行星探矿](asteroid-prospecting.md)
 - [地图缓存、验证和导出规则](map-cache-validation-export.md)

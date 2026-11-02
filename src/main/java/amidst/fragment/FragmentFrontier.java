@@ -70,6 +70,8 @@ public final class FragmentFrontier {
 			int visible = Boolean.compare(viewport.isVisible(second), viewport.isVisible(first));
 			if (visible != 0) return visible;
 		}
+		int stage = Integer.compare(schedulingStage(first), schedulingStage(second));
+		if (stage != 0) return stage;
 		int wave = Integer.compare(distance.getOrDefault(first.getCorner(), Integer.MAX_VALUE),
 				distance.getOrDefault(second.getCorner(), Integer.MAX_VALUE));
 		if (wave != 0) return wave;
@@ -81,4 +83,9 @@ public final class FragmentFrontier {
 		int row = Long.compare(first.getCorner().getY(), second.getCorner().getY());
 		return row != 0 ? row : Long.compare(first.getCorner().getX(), second.getCorner().getX());
 	}
+
+    private static int schedulingStage(Fragment fragment) {
+        // Finish a coordinated tile as soon as its terrain is ready, before expanding the backlog.
+        return fragment.isSynchronizedPublication() ? 1 - fragment.loadingStage() : fragment.loadingStage();
+    }
 }

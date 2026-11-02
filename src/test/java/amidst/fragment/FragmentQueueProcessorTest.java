@@ -26,6 +26,22 @@ import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 import amidst.settings.Setting;
 
 public class FragmentQueueProcessorTest {
+    @Test public void terrainKeepsHighParallelismAndCompletedTerrainAllowsFourPoiRequests() {
+        Fixture terrain = new Fixture(8, 256, true);
+        for (int i = 0; i < 8; i++) terrain.request(i * 512, 0);
+        terrain.processor.processQueues();
+        assertEquals(8, terrain.processor.getActiveLoadCount());
+        for (int i = 0; i < 8; i++) terrain.executor.runNext();
+        terrain.processor.processQueues();
+        assertEquals("At most four independent POI requests follow terrain", 4, terrain.processor.getActiveLoadCount());
+        terrain.drain();
+        Fixture nether = new Fixture(8, 256, true);
+        nether.dimension.set(Dimension.NETHER);
+        for (int i = 0; i < 8; i++) nether.request(i * 512, 0);
+        nether.processor.processQueues();
+        assertEquals(4, nether.processor.getActiveLoadCount());
+        nether.drain();
+    }
 	@Test(timeout = 5000)
 	public void dispatchIsBoundedEvenBeforeExecutorStartsAnyThread() {
 		Fixture f = new Fixture(2);
@@ -395,6 +411,9 @@ public class FragmentQueueProcessorTest {
 		}
 
 		Fixture(int limit, int retainedLimit) {
+            this(limit, retainedLimit, false);
+        }
+        Fixture(int limit, int retainedLimit, boolean parallelTerrainOnly) {
 			cache = new FragmentCache(available, loading, List.of(), 4, retainedLimit);
 			cache.increaseSize();
 			LayerDeclaration first = new LayerDeclaration(1, null, false, true, Setting.createImmutable(true));
@@ -407,7 +426,7 @@ public class FragmentQueueProcessorTest {
 					}), loader(second, (dimension, fragment) -> secondLoads.add(fragment))), 4);
 			layers = new LayerManager(List.of(first, second), loaders, List.of());
 			processor = new FragmentQueueProcessor(loading, recycle, cache, layers,
-					executor, dimension, () -> viewport, limit);
+					executor, dimension, () -> viewport, limit, parallelTerrainOnly, executor);
 		}
 
 		Fragment request(int x, int z) {

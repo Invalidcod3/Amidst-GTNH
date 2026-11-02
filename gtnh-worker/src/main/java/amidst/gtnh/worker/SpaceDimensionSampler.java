@@ -20,11 +20,9 @@ import net.minecraft.world.biome.WorldChunkManager;
 final class SpaceDimensionSampler {
 
     private static final int MAX_CACHED_MANAGERS = 8;
-    static final int CERES_DISPLAY_BIOME = 3100;
-    static final int ENCELADUS_DISPLAY_BIOME = 3101;
-    static final int PROTEUS_DISPLAY_BIOME = 3102;
-    private static final int SCOPED_BIOME_BASE = 4096;
-    private static final int SCOPED_BIOME_STRIDE = 256;
+    static final int CERES_DISPLAY_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 100;
+    static final int ENCELADUS_DISPLAY_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 101;
+    static final int PROTEUS_DISPLAY_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 102;
     private static final String[] SCOPED_BIOME_DIMENSIONS = {
         "galacticraftcore:moon",
         "galacticraftmars:mars",
@@ -382,13 +380,10 @@ final class SpaceDimensionSampler {
     }
 
     static int displayBiomeId(String dimensionKey, int biomeId) {
-        if (biomeId < 0 || biomeId >= SCOPED_BIOME_STRIDE) {
-            throw new IllegalArgumentException(
-                    "runtime biome id is outside the Minecraft 1.7 range: " + biomeId);
-        }
+        DisplayBiomeIds.raw(biomeId);
         for (int index = 0; index < SCOPED_BIOME_DIMENSIONS.length; index++) {
             if (SCOPED_BIOME_DIMENSIONS[index].equals(dimensionKey)) {
-                return SCOPED_BIOME_BASE + index * SCOPED_BIOME_STRIDE + biomeId;
+                return DisplayBiomeIds.scoped(DisplayBiomeIds.SPACE_BASE, index, biomeId);
             }
         }
         return biomeId;

@@ -52,6 +52,11 @@ public class AmidstSettings {
 	public final Setting<Boolean> showGtnhVillages;
 	public final Setting<Boolean> showGtnhMineshafts;
 	public final Setting<Boolean> showGtnhLootGamesDungeons;
+	public final Setting<Boolean> showRwg2LavaCaveGames;
+	public final Setting<Boolean> showRwg2RiverChamberGames;
+	public final Setting<Boolean> showGtnhOceanMonuments;
+	public final Setting<Boolean> showRwg2TwilightPortals;
+	public final Setting<Boolean> showRwg2NetherPortals;
 	public final Setting<Boolean> showGtnhTinkersSlimeIslands;
 	public final Setting<Boolean> showGtnhVanillaSpawnerDungeons;
 	public final Setting<Boolean> showGtnhThaumcraftAuraNodes;
@@ -87,6 +92,8 @@ public class AmidstSettings {
 
 	public final Setting<String> lastProfile;
 	public final Setting<String> worldType;
+    public final Setting<String> gtnhWorldType;
+
 	
 	public final Setting<String> lastBiomeExportPath;
 	public final Setting<String> lastScreenshotPath;
@@ -129,6 +136,11 @@ public class AmidstSettings {
 		showGtnhVillages           = Setting.createBoolean(  preferences, "gtnhVillageIcons",     true);
 		showGtnhMineshafts         = Setting.createBoolean(  preferences, "gtnhMineshaftIcons",   false);
 		showGtnhLootGamesDungeons  = Setting.createBoolean(  preferences, "gtnhLootGamesDungeons",true);
+		showRwg2LavaCaveGames = Setting.createBoolean(preferences, "rwg2LavaCaveGames", showGtnhLootGamesDungeons.get());
+		showRwg2RiverChamberGames = Setting.createBoolean(preferences, "rwg2RiverChamberGames", showGtnhLootGamesDungeons.get());
+		showGtnhOceanMonuments = Setting.createBoolean(preferences, "gtnhOceanMonuments", true);
+		showRwg2TwilightPortals = Setting.createBoolean(preferences, "rwg2TwilightPortals", true);
+		showRwg2NetherPortals = Setting.createBoolean(preferences, "rwg2NetherPortals", true);
 		showGtnhTinkersSlimeIslands= Setting.createBoolean(  preferences, "gtnhTinkersSlimeIslands", true);
 		showGtnhVanillaSpawnerDungeons= Setting.createBoolean(preferences, "gtnhVanillaSpawnerDungeons", false);
 		showGtnhThaumcraftAuraNodes= Setting.createBoolean(  preferences, "gtnhThaumcraftAuraNodes", true);
@@ -186,6 +198,7 @@ public class AmidstSettings {
 		lookAndFeel                = Setting.createEnum(     preferences, "lookAndFeel",          AmidstLookAndFeel.DEFAULT);
 
 		lastProfile                = Setting.createString(   preferences, "profile",              "");
+		gtnhWorldType = Setting.createString(preferences, "gtnhWorldType", WorldType.PROMPT_EACH_TIME);
 		worldType                  = Setting.createString(   preferences, "worldType",            WorldType.PROMPT_EACH_TIME);
 		
 		lastBiomeExportPath        = Setting.createString(   preferences, "lastBiomeExportPath",  "");

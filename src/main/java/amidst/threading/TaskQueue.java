@@ -28,4 +28,6 @@ public class TaskQueue {
 	public void invoke(Runnable runnable) {
 		tasks.offer(runnable);
 	}
+
+    public boolean hasTasks() { return !tasks.isEmpty(); }
 }

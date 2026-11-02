@@ -5,6 +5,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import amidst.logging.AmidstLogger;
+import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
+import amidst.threading.TaskCancellation;
+
+import org.junit.Test;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
@@ -12,596 +18,1318 @@ import java.io.OutputStreamWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.CancellationException;
-
-import org.junit.Test;
-
-import amidst.mojangapi.minecraftinterface.MinecraftInterfaceException;
-import amidst.logging.AmidstLogger;
-import amidst.threading.TaskCancellation;
 
 public class GtnhBiomeWorkerClientTest {
-    @Test(timeout=5000) public void spawnProtocolPreservesSavedHeightAndDoesNotInventMissingOrigin() throws Exception {
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try (ServerSocket server=new ServerSocket(0)) {
+    @Test(timeout = 6000)
+    public void slowTerrainDoesNotHoldTheStructurePermitAndSelectionReachesTheWorker()
+            throws Exception {
+        var setting = GtnhBiomeWorkerClient.class.getDeclaredField("samplingParallelism");
+        setting.setAccessible(true);
+        int before = setting.getInt(null);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(2000);
-            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000,20,()->{});
-            String[] responses={
-                "{\"ok\":true,\"protocol\":25,\"spawnX\":-1710,\"spawnY\":79,\"spawnZ\":850,\"spawnSource\":\"RECORDED\"}",
-                "{\"ok\":true,\"protocol\":25,\"spawnX\":1200,\"spawnZ\":-800,\"spawnSource\":\"ESTIMATED\"}",
-                "{\"ok\":true,\"protocol\":25,\"spawnSource\":\"UNAVAILABLE\"}",
-                "{\"ok\":true,\"protocol\":25,\"spawnSource\":\"RECORDED\"}"
-            };
-            for (int i=0;i<responses.length;i++) {
-                var query=executor.submit(()->client.sampleSpawnPoint(71,0));
-                try (Socket socket=server.accept()) {
-                    var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
-                    assertEquals("spawn",request.get("command").getAsString()); assertEquals(71,request.get("seed").getAsLong());
-                    assertEquals(0,request.get("dimension").getAsInt());
-                    socket.getOutputStream().write((responses[i]+"\n").getBytes(StandardCharsets.UTF_8));
+            GtnhBiomeWorkerClient.setSamplingParallelism(1);
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 4000);
+            Future<int[]> terrain = executor.submit(() -> client.sampleBiomes(1, 0, 0, 0, 1, 1, 4));
+            try (Socket biome = server.accept()) {
+                new BufferedReader(
+                                new InputStreamReader(
+                                        biome.getInputStream(), StandardCharsets.UTF_8))
+                        .readLine();
+                Future<?> poi =
+                        executor.submit(
+                                () ->
+                                        client.sampleSelectedStructures(
+                                                1,
+                                                0,
+                                                "minecraft:overworld",
+                                                0,
+                                                0,
+                                                512,
+                                                512,
+                                                "standard",
+                                                java.util.Set.of("VILLAGE")));
+                try (Socket structures = server.accept()) {
+                    String request =
+                            new BufferedReader(
+                                            new InputStreamReader(
+                                                    structures.getInputStream(),
+                                                    StandardCharsets.UTF_8))
+                                    .readLine();
+                    assertTrue(request, request.contains("\"structureTypes\":[\"VILLAGE\"]"));
+                    structures
+                            .getOutputStream()
+                            .write(
+                                    "{\"ok\":true,\"protocol\":31,\"structures\":[]}\n"
+                                            .getBytes(StandardCharsets.UTF_8));
+                    poi.get(1, TimeUnit.SECONDS);
                 }
-                if (i==0) assertEquals(new GtnhSpawnPoint(-1710,79,850,"RECORDED"),query.get(1,TimeUnit.SECONDS));
-                else if(i==1) assertEquals(new GtnhSpawnPoint(1200,null,-800,"ESTIMATED"),query.get(1,TimeUnit.SECONDS));
-                else if(i==2) assertEquals(null,query.get(1,TimeUnit.SECONDS));
-                else assertTrue(assertThrows(ExecutionException.class,()->query.get(1,TimeUnit.SECONDS)).getCause() instanceof MinecraftInterfaceException);
+                assertTrue("Terrain is still blocked", !terrain.isDone());
+                biome.getOutputStream()
+                        .write(
+                                "{\"ok\":true,\"protocol\":31,\"ids\":[40]}\n"
+                                        .getBytes(StandardCharsets.UTF_8));
+                assertArrayEquals(new int[] {40}, terrain.get(1, TimeUnit.SECONDS));
             }
-        } finally { executor.shutdownNow(); }
+        } finally {
+            GtnhBiomeWorkerClient.setSamplingParallelism(before);
+            executor.shutdownNow();
+        }
     }
-    @Test(timeout=5000) public void asteroidCenterHeightSurvivesStructureProtocol() throws Exception {
+
+    @Test(timeout = 5000)
+    public void staleWorldSnapshotsRetryWithoutOfflineRecoveryOrCongestionBackoff()
+            throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(1500);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            AtomicInteger offline = new AtomicInteger();
+            try {
+                Future<?> serving =
+                        executor.submit(
+                                () -> {
+                                    String[] errors = {
+                                        "World changed during biome query; retry",
+                                        "World changed during biome query; retry in the current"
+                                                + " world",
+                                        "World changed during background biome query; retry in the"
+                                                + " current world",
+                                        "World changed during structure prediction; retry",
+                                        "World changed during dungeon prediction; retry",
+                                        "World changed during RWG2 structure prediction; retry",
+                                        "World changed during prospecting",
+                                        null
+                                    };
+                                    try {
+                                        for (String error : errors)
+                                            try (Socket socket = server.accept()) {
+                                                String request =
+                                                        new BufferedReader(
+                                                                        new InputStreamReader(
+                                                                                socket
+                                                                                        .getInputStream(),
+                                                                                StandardCharsets
+                                                                                        .UTF_8))
+                                                                .readLine();
+                                                assertTrue(request.contains("structures"));
+                                                String reply =
+                                                        error == null
+                                                                ? "{\"ok\":true,\"protocol\":31,\"structures\":[]}\n"
+                                                                : "{\"ok\":false,\"protocol\":31,\"error\":\"IllegalStateException:"
+                                                                      + " "
+                                                                        + error
+                                                                        + "\"}\n";
+                                                socket.getOutputStream()
+                                                        .write(
+                                                                reply.getBytes(
+                                                                        StandardCharsets.UTF_8));
+                                            }
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+                // A multi-second normal recovery delay must not apply to expired snapshots.
+                var client =
+                        new GtnhBiomeWorkerClient(
+                                "127.0.0.1",
+                                server.getLocalPort(),
+                                "",
+                                1000,
+                                3000,
+                                offline::incrementAndGet);
+                assertTrue(client.sampleStructures(7, 0, 0, 0, 512, 512).isEmpty());
+                serving.get(1, TimeUnit.SECONDS);
+                assertEquals(0, offline.get());
+                var gateField = GtnhBiomeWorkerClient.class.getDeclaredField("requestGate");
+                gateField.setAccessible(true);
+                WorkerRequestGate gate = (WorkerRequestGate) gateField.get(client);
+                Future<?> capacity =
+                        executor.submit(
+                                () -> {
+                                    // No leaked permits or lowered concurrency after retries.
+                                    for (int i = 0; i < 64; i++) gate.acquire(64);
+                                    for (int i = 0; i < 64; i++) gate.release();
+                                });
+                capacity.get(1, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void configuredParallelismIsSentToTheWorker() throws Exception {
+        java.lang.reflect.Field setting =
+                GtnhBiomeWorkerClient.class.getDeclaredField("samplingParallelism");
+        setting.setAccessible(true);
+        int before = setting.getInt(null);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+            for (int count : new int[] {1, 8, 32, 100}) {
+                GtnhBiomeWorkerClient.setSamplingParallelism(count);
+                Future<int[]> query =
+                        executor.submit(() -> client.sampleBiomes(1, 0, 0, 0, 1, 1, 4));
+                try (Socket socket = server.accept()) {
+                    String request =
+                            new BufferedReader(
+                                            new InputStreamReader(
+                                                    socket.getInputStream(),
+                                                    StandardCharsets.UTF_8))
+                                    .readLine();
+                    assertTrue(request, request.contains("\"parallelism\":" + Math.min(64, count)));
+                    socket.getOutputStream()
+                            .write(
+                                    "{\"ok\":true,\"protocol\":31,\"ids\":[40]}\n"
+                                            .getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream().flush();
+                    assertArrayEquals(new int[] {40}, query.get(1, TimeUnit.SECONDS));
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+            GtnhBiomeWorkerClient.setSamplingParallelism(before);
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void everyBoundClientKeepsItsGeneratorOnTheWire() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(2000);
-            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
-            var query = executor.submit(() -> client.sampleStructureGroup(42, 1, null, -512, 0, 512, 512, null));
+            var root = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+            var smooth = root.withGenerator("RWG2_CONTINENTS");
+            var alpha = root.withGenerator("RWG");
+            Future<?> responses =
+                    executor.submit(
+                            () -> {
+                                for (String generator :
+                                        new String[] {
+                                            "RWG2_CONTINENTS", "RWG", "RWG2_CONTINENTS"
+                                        }) {
+                                    try (Socket socket = server.accept()) {
+                                        var request =
+                                                com.google.gson.JsonParser.parseString(
+                                                        new BufferedReader(
+                                                                        new InputStreamReader(
+                                                                                socket
+                                                                                        .getInputStream(),
+                                                                                StandardCharsets
+                                                                                        .UTF_8))
+                                                                .readLine());
+                                        assertEquals(
+                                                generator,
+                                                request.getAsJsonObject()
+                                                        .get("generator")
+                                                        .getAsString());
+                                        socket.getOutputStream()
+                                                .write(
+                                                        "{\"ok\":true,\"protocol\":31,\"spawnSource\":\"UNAVAILABLE\"}\n"
+                                                                .getBytes(StandardCharsets.UTF_8));
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                }
+                            });
+            smooth.sampleSpawnPoint(47, 0);
+            alpha.sampleSpawnPoint(47, 0);
+            smooth.sampleSpawnPoint(47, 0);
+            responses.get(2, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void spawnProtocolPreservesSavedHeightAndDoesNotInventMissingOrigin() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
+            String[] responses = {
+                "{\"ok\":true,\"protocol\":31,\"spawnX\":-1710,\"spawnY\":79,\"spawnZ\":850,\"spawnSource\":\"RECORDED\"}",
+                "{\"ok\":true,\"protocol\":31,\"spawnX\":1200,\"spawnZ\":-800,\"spawnSource\":\"ESTIMATED\"}",
+                "{\"ok\":true,\"protocol\":31,\"spawnSource\":\"UNAVAILABLE\"}",
+                "{\"ok\":true,\"protocol\":31,\"spawnSource\":\"RECORDED\"}"
+            };
+            for (int i = 0; i < responses.length; i++) {
+                var query = executor.submit(() -> client.sampleSpawnPoint(71, 0));
+                try (Socket socket = server.accept()) {
+                    var request =
+                            com.google.gson.JsonParser.parseString(
+                                            new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    socket.getInputStream(),
+                                                                    StandardCharsets.UTF_8))
+                                                    .readLine())
+                                    .getAsJsonObject();
+                    assertEquals("spawn", request.get("command").getAsString());
+                    assertEquals(71, request.get("seed").getAsLong());
+                    assertEquals(0, request.get("dimension").getAsInt());
+                    socket.getOutputStream()
+                            .write((responses[i] + "\n").getBytes(StandardCharsets.UTF_8));
+                }
+                if (i == 0)
+                    assertEquals(
+                            new GtnhSpawnPoint(-1710, 79, 850, "RECORDED"),
+                            query.get(1, TimeUnit.SECONDS));
+                else if (i == 1)
+                    assertEquals(
+                            new GtnhSpawnPoint(1200, null, -800, "ESTIMATED"),
+                            query.get(1, TimeUnit.SECONDS));
+                else if (i == 2) assertEquals(null, query.get(1, TimeUnit.SECONDS));
+                else
+                    assertTrue(
+                            assertThrows(
+                                                    ExecutionException.class,
+                                                    () -> query.get(1, TimeUnit.SECONDS))
+                                            .getCause()
+                                    instanceof MinecraftInterfaceException);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void asteroidCenterHeightSurvivesStructureProtocol() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
+            var query =
+                    executor.submit(
+                            () ->
+                                    client.sampleStructureGroup(
+                                            42, 1, null, -512, 0, 512, 512, null));
             try (Socket socket = server.accept()) {
-                var request = com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(
-                        socket.getInputStream(), StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
+                var request =
+                        com.google.gson.JsonParser.parseString(
+                                        new BufferedReader(
+                                                        new InputStreamReader(
+                                                                socket.getInputStream(),
+                                                                StandardCharsets.UTF_8))
+                                                .readLine())
+                                .getAsJsonObject();
                 assertEquals(1, request.get("dimension").getAsInt());
-                socket.getOutputStream().write(("{\"ok\":true,\"protocol\":25,\"structures\":["
-                        + "{\"kind\":\"END_PLATINUM_ASTEROID\",\"subtype\":\"\",\"x\":-258,\"z\":364,\"y\":167,\"certainty\":\"EXACT_SEED\"},"
-                        + "{\"kind\":\"HEE_DUNGEON_TOWER\",\"x\":-128,\"z\":128,\"certainty\":\"POSSIBLE\"}]}\n")
-                        .getBytes(StandardCharsets.UTF_8));
+                socket.getOutputStream()
+                        .write(
+                                ("{\"ok\":true,\"protocol\":31,\"structures\":[{\"kind\":\"END_PLATINUM_ASTEROID\",\"subtype\":\"\",\"x\":-258,\"z\":364,\"y\":167,\"certainty\":\"EXACT_SEED\"},{\"kind\":\"HEE_DUNGEON_TOWER\",\"x\":-128,\"z\":128,\"certainty\":\"POSSIBLE\"}]}\n")
+                                        .getBytes(StandardCharsets.UTF_8));
             }
             var structures = query.get(2, TimeUnit.SECONDS);
             assertEquals(Integer.valueOf(167), structures.get(0).y());
             assertEquals(-258, structures.get(0).x());
             assertEquals(364, structures.get(0).z());
             assertEquals(null, structures.get(1).y());
-        } finally { executor.shutdownNow(); }
-    }
-    @Test(timeout=7000) public void coldCacheTimeoutStillLoadsTilesAndBacksOffCacheRequests() throws Exception {
-        boolean enabled=amidst.gtnh.cache.MapStorage.enabled;amidst.gtnh.cache.MapStorage.enabled=true;
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try(ServerSocket server=new ServerSocket(0)) {
-            server.setSoTimeout(3000);
-            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",3000);
-            Future<int[]> first=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
-            try(Socket slow=server.accept()) {
-                String request=new BufferedReader(new InputStreamReader(slow.getInputStream(),StandardCharsets.UTF_8)).readLine();
-                assertEquals("cache_context",com.google.gson.JsonParser.parseString(request).getAsJsonObject().get("command").getAsString());
-                // Do not reply: optional cache metadata times out before the real query.
-                int[] ids=new int[64];java.util.Arrays.fill(ids,4);
-                String response=new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"ids",ids));
-                respond(server,"biomes",response);
-                assertArrayEquals(ids,first.get(1,TimeUnit.SECONDS));
-                Future<int[]> second=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
-                respond(server,"biomes",response); // No second cache wait during backoff.
-                assertArrayEquals(ids,second.get(1,TimeUnit.SECONDS));
-            }
-        }finally{executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=enabled;}
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
-    @Test(timeout=5000) public void cacheRejectionAndNotReadyBothFallBackToBiomeQuery() throws Exception {
-        boolean enabled=amidst.gtnh.cache.MapStorage.enabled;amidst.gtnh.cache.MapStorage.enabled=true;
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try(ServerSocket server=new ServerSocket(0)) {
-            server.setSoTimeout(2000);
-            for(String metadata:new String[]{"{\"ok\":true,\"protocol\":25}","{\"ok\":false,\"protocol\":25,\"error\":\"cache initializing\"}"}) {
-                var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
-                Future<int[]> query=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
-                respond(server,"cache_context",metadata);
-                int[] ids=new int[64];java.util.Arrays.fill(ids,6);
-                respond(server,"biomes",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"ids",ids)));
-                assertArrayEquals(ids,query.get(1,TimeUnit.SECONDS));
+    @Test(timeout = 7000)
+    public void coldCacheTimeoutStillLoadsTilesAndBacksOffCacheRequests() throws Exception {
+        boolean enabled = amidst.gtnh.cache.MapStorage.enabled;
+        amidst.gtnh.cache.MapStorage.enabled = true;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(3000);
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 3000);
+            Future<int[]> first =
+                    executor.submit(
+                            () -> client.sampleBiomes(71, 73, "Everglades", -64, 80, 8, 8, 4));
+            try (Socket slow = server.accept()) {
+                String request =
+                        new BufferedReader(
+                                        new InputStreamReader(
+                                                slow.getInputStream(), StandardCharsets.UTF_8))
+                                .readLine();
+                assertEquals(
+                        "cache_context",
+                        com.google.gson.JsonParser.parseString(request)
+                                .getAsJsonObject()
+                                .get("command")
+                                .getAsString());
+                // Do not reply: optional cache metadata times out before the real query.
+                int[] ids = new int[64];
+                java.util.Arrays.fill(ids, 4);
+                String response =
+                        new com.google.gson.Gson()
+                                .toJson(java.util.Map.of("ok", true, "protocol", 31, "ids", ids));
+                respond(server, "biomes", response);
+                assertArrayEquals(ids, first.get(1, TimeUnit.SECONDS));
+                Future<int[]> second =
+                        executor.submit(
+                                () -> client.sampleBiomes(71, 73, "Everglades", -64, 80, 8, 8, 4));
+                respond(server, "biomes", response); // No second cache wait during backoff.
+                assertArrayEquals(ids, second.get(1, TimeUnit.SECONDS));
             }
-        }finally{executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=enabled;}
-    }
-    @org.junit.Rule public org.junit.rules.TemporaryFolder cacheFolder=new org.junit.rules.TemporaryFolder();
-    @Test(timeout=7000) public void diskCacheIsReusedOnlyAfterFreshWorkerStamp() throws Exception {
-        String previous=System.getProperty("amidst.cacheDir");
-        boolean wasEnabled=amidst.gtnh.cache.MapStorage.enabled;
-        System.setProperty("amidst.cacheDir",cacheFolder.getRoot().toString());amidst.gtnh.cache.MapStorage.enabled=true;
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try(ServerSocket server=new ServerSocket(0)) {
-            server.setSoTimeout(2000);var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
-            for(int run=0;run<3;run++) {
-                Future<int[]> query=executor.submit(()->client.sampleBiomes(71,73,"Everglades",-64,80,8,8,4));
-                String stamp=run<2?"save-A:loaded-biomes-1":"save-A:loaded-biomes-2";
-                respond(server,"cache_context",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"cacheStamp",stamp)));
-                if(run!=1) {
-                    int[] ids=new int[64];java.util.Arrays.fill(ids,run==0?4:6);
-                    respond(server,"biomes",new com.google.gson.Gson().toJson(java.util.Map.of("ok",true,"protocol",25,"cacheStamp",stamp,"ids",ids)));
-                }
-                int[] result=query.get(2,TimeUnit.SECONDS);assertEquals(64,result.length);assertEquals(run<2?4:6,result[0]);
-            }
-        }finally {
-            executor.shutdownNow();amidst.gtnh.cache.MapStorage.enabled=wasEnabled;
-            if(previous==null)System.clearProperty("amidst.cacheDir");else System.setProperty("amidst.cacheDir",previous);
+        } finally {
+            executor.shutdownNow();
+            amidst.gtnh.cache.MapStorage.enabled = enabled;
         }
     }
-    private static void respond(ServerSocket server,String command,String response) throws Exception {
-        try(Socket socket=server.accept()) {
-            var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
-            assertEquals(command,request.get("command").getAsString());
-            assertEquals(73,request.get("dimension").getAsInt());assertEquals(-64,request.get("x").getAsInt());
-            socket.getOutputStream().write((response+"\n").getBytes(StandardCharsets.UTF_8));
+
+    @Test(timeout = 5000)
+    public void cacheRejectionAndNotReadyBothFallBackToBiomeQuery() throws Exception {
+        boolean enabled = amidst.gtnh.cache.MapStorage.enabled;
+        amidst.gtnh.cache.MapStorage.enabled = true;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            for (String metadata :
+                    new String[] {
+                        "{\"ok\":true,\"protocol\":31}",
+                        "{\"ok\":false,\"protocol\":31,\"error\":\"cache initializing\"}"
+                    }) {
+                var client =
+                        new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+                Future<int[]> query =
+                        executor.submit(
+                                () -> client.sampleBiomes(71, 73, "Everglades", -64, 80, 8, 8, 4));
+                respond(server, "cache_context", metadata);
+                int[] ids = new int[64];
+                java.util.Arrays.fill(ids, 6);
+                respond(
+                        server,
+                        "biomes",
+                        new com.google.gson.Gson()
+                                .toJson(java.util.Map.of("ok", true, "protocol", 31, "ids", ids)));
+                assertArrayEquals(ids, query.get(1, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+            amidst.gtnh.cache.MapStorage.enabled = enabled;
         }
     }
-    @Test(timeout=5000) public void sameRevisionInAnotherSaveForcesRefresh() throws Exception {
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try(ServerSocket server=new ServerSocket(0)) {
+
+    @org.junit.Rule
+    public org.junit.rules.TemporaryFolder cacheFolder = new org.junit.rules.TemporaryFolder();
+
+    @Test(timeout = 7000)
+    public void diskCacheIsReusedOnlyAfterFreshWorkerStamp() throws Exception {
+        String previous = System.getProperty("amidst.cacheDir");
+        boolean wasEnabled = amidst.gtnh.cache.MapStorage.enabled;
+        System.setProperty("amidst.cacheDir", cacheFolder.getRoot().toString());
+        amidst.gtnh.cache.MapStorage.enabled = true;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(2000);
-            var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
-            int index=0;
-            for(String session:new String[]{"save-A","save-A","save-B"}) {
-                Future<GtnhWorldState> query=executor.submit(()->client.getWorldState(9));
-                try(Socket socket=server.accept()) {
-                    new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine();
-                    socket.getOutputStream().write(("{\"ok\":true,\"protocol\":25,\"worldRevision\":9,\"worldSession\":\""+session+"\",\"chunkXs\":[],\"chunkZs\":[]}\n").getBytes(StandardCharsets.UTF_8));
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+            for (int run = 0; run < 3; run++) {
+                Future<int[]> query =
+                        executor.submit(
+                                () -> client.sampleBiomes(71, 73, "Everglades", -64, 80, 8, 8, 4));
+                String stamp = run < 2 ? "save-A:loaded-biomes-1" : "save-A:loaded-biomes-2";
+                respond(
+                        server,
+                        "cache_context",
+                        new com.google.gson.Gson()
+                                .toJson(
+                                        java.util.Map.of(
+                                                "ok", true, "protocol", 31, "cacheStamp", stamp)));
+                if (run != 1) {
+                    int[] ids = new int[64];
+                    java.util.Arrays.fill(ids, run == 0 ? 4 : 6);
+                    respond(
+                            server,
+                            "biomes",
+                            new com.google.gson.Gson()
+                                    .toJson(
+                                            java.util.Map.of(
+                                                    "ok",
+                                                    true,
+                                                    "protocol",
+                                                    31,
+                                                    "cacheStamp",
+                                                    stamp,
+                                                    "ids",
+                                                    ids)));
                 }
-                GtnhWorldState state=query.get(2,TimeUnit.SECONDS);
-                assertEquals(index!=1,state.fullRefresh());index++;
+                int[] result = query.get(2, TimeUnit.SECONDS);
+                assertEquals(64, result.length);
+                assertEquals(run < 2 ? 4 : 6, result[0]);
             }
-        }finally{executor.shutdownNow();}
+        } finally {
+            executor.shutdownNow();
+            amidst.gtnh.cache.MapStorage.enabled = wasEnabled;
+            if (previous == null) System.clearProperty("amidst.cacheDir");
+            else System.setProperty("amidst.cacheDir", previous);
+        }
     }
-    @Test(timeout=5000) public void validationCarriesDimensionAndSaveSession() throws Exception {
-        ExecutorService executor=Executors.newSingleThreadExecutor();
-        try(ServerSocket server=new ServerSocket(0)) {
-            server.setSoTimeout(2000);var client=new GtnhBiomeWorkerClient("127.0.0.1",server.getLocalPort(),"",2000);
-            Future<amidst.gtnh.validation.AccuracyReport> query=executor.submit(()->client.validate(71,73,"Everglades",-99,80,128,128,4,"ORES","session-A"));
-            try(Socket socket=server.accept()) {
-                var request=com.google.gson.JsonParser.parseString(new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.UTF_8)).readLine()).getAsJsonObject();
-                assertEquals("validate",request.get("command").getAsString());assertEquals(73,request.get("dimension").getAsInt());
-                assertEquals("Everglades",request.get("dimensionKey").getAsString());assertEquals(-99,request.get("x").getAsInt());
-                assertEquals("session-A",request.get("expectedSession").getAsString());
-                socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"accuracy\":{\"seed\":71,\"dimension\":73,\"category\":\"ORES\",\"worldSession\":\"session-A\",\"matched\":2,\"mismatched\":1,\"unverified\":8,\"details\":[]}}\n".getBytes(StandardCharsets.UTF_8));
+
+    private static void respond(ServerSocket server, String command, String response)
+            throws Exception {
+        try (Socket socket = server.accept()) {
+            var request =
+                    com.google.gson.JsonParser.parseString(
+                                    new BufferedReader(
+                                                    new InputStreamReader(
+                                                            socket.getInputStream(),
+                                                            StandardCharsets.UTF_8))
+                                            .readLine())
+                            .getAsJsonObject();
+            assertEquals(command, request.get("command").getAsString());
+            assertEquals(73, request.get("dimension").getAsInt());
+            assertEquals(-64, request.get("x").getAsInt());
+            socket.getOutputStream().write((response + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test(timeout = 5000)
+    public void sameRevisionInAnotherSaveForcesRefresh() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+            int index = 0;
+            for (String session : new String[] {"save-A", "save-A", "save-B"}) {
+                Future<GtnhWorldState> query = executor.submit(() -> client.getWorldState(9));
+                try (Socket socket = server.accept()) {
+                    new BufferedReader(
+                                    new InputStreamReader(
+                                            socket.getInputStream(), StandardCharsets.UTF_8))
+                            .readLine();
+                    socket.getOutputStream()
+                            .write(
+                                    ("{\"ok\":true,\"protocol\":31,\"worldRevision\":9,\"worldSession\":\""
+                                                    + session
+                                                    + "\",\"chunkXs\":[],\"chunkZs\":[]}\n")
+                                            .getBytes(StandardCharsets.UTF_8));
+                }
+                GtnhWorldState state = query.get(2, TimeUnit.SECONDS);
+                assertEquals(index != 1, state.fullRefresh());
+                index++;
             }
-            var result=query.get(2,TimeUnit.SECONDS);assertEquals(2,result.matched);assertEquals(8,result.unverified);
-        }finally{executor.shutdownNow();}
+        } finally {
+            executor.shutdownNow();
+        }
     }
+
+    @Test(timeout = 5000)
+    public void validationCarriesDimensionAndSaveSession() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            var client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+            Future<amidst.gtnh.validation.AccuracyReport> query =
+                    executor.submit(
+                            () ->
+                                    client.validate(
+                                            71,
+                                            73,
+                                            "Everglades",
+                                            -99,
+                                            80,
+                                            128,
+                                            128,
+                                            4,
+                                            "ORES",
+                                            "session-A"));
+            try (Socket socket = server.accept()) {
+                var request =
+                        com.google.gson.JsonParser.parseString(
+                                        new BufferedReader(
+                                                        new InputStreamReader(
+                                                                socket.getInputStream(),
+                                                                StandardCharsets.UTF_8))
+                                                .readLine())
+                                .getAsJsonObject();
+                assertEquals("validate", request.get("command").getAsString());
+                assertEquals(73, request.get("dimension").getAsInt());
+                assertEquals("Everglades", request.get("dimensionKey").getAsString());
+                assertEquals(-99, request.get("x").getAsInt());
+                assertEquals("session-A", request.get("expectedSession").getAsString());
+                socket.getOutputStream()
+                        .write(
+                                "{\"ok\":true,\"protocol\":31,\"accuracy\":{\"seed\":71,\"dimension\":73,\"category\":\"ORES\",\"worldSession\":\"session-A\",\"matched\":2,\"mismatched\":1,\"unverified\":8,\"details\":[]}}\n"
+                                        .getBytes(StandardCharsets.UTF_8));
+            }
+            var result = query.get(2, TimeUnit.SECONDS);
+            assertEquals(2, result.matched);
+            assertEquals(8, result.unverified);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     @Test(timeout = 5000)
     public void structureGroupsAreSentWithoutChangingLegacyRequests() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(2000);
-            GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-                    "127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
             for (String group : new String[] {"standard", "thaumcraft", null}) {
-                Future<?> query = executor.submit(() -> client.sampleStructureGroup(42, 0, null, -512, 0, 512, 512, group));
+                Future<?> query =
+                        executor.submit(
+                                () ->
+                                        client.sampleStructureGroup(
+                                                42, 0, null, -512, 0, 512, 512, group));
                 try (Socket socket = server.accept()) {
-                    String line = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)).readLine();
-                    com.google.gson.JsonObject request = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
+                    String line =
+                            new BufferedReader(
+                                            new InputStreamReader(
+                                                    socket.getInputStream(),
+                                                    StandardCharsets.UTF_8))
+                                    .readLine();
+                    com.google.gson.JsonObject request =
+                            com.google.gson.JsonParser.parseString(line).getAsJsonObject();
                     assertEquals("structures", request.get("command").getAsString());
-                    if (group == null) assertTrue(!request.has("structureGroup") || request.get("structureGroup").isJsonNull());
+                    if (group == null)
+                        assertTrue(
+                                !request.has("structureGroup")
+                                        || request.get("structureGroup").isJsonNull());
                     else assertEquals(group, request.get("structureGroup").getAsString());
-                    socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"structures\":[]}\n".getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream()
+                            .write(
+                                    "{\"ok\":true,\"protocol\":31,\"structures\":[]}\n"
+                                            .getBytes(StandardCharsets.UTF_8));
                     socket.getOutputStream().flush();
                 }
                 assertEquals(java.util.List.of(), query.get(2, TimeUnit.SECONDS));
             }
-        } finally { executor.shutdownNow(); }
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
-	@Test(timeout = 5000)
-	public void resultAlreadyInFlightSurvivesPanButNextQueryIsCancelled() throws Exception {
-		AtomicBoolean cancelled = new AtomicBoolean();
-		AtomicReference<int[]> saved = new AtomicReference<>();
-		AtomicInteger offlineNotifications = new AtomicInteger();
-		ExecutorService executor = Executors.newSingleThreadExecutor();
-		try (ServerSocket server = new ServerSocket(0)) {
-			server.setSoTimeout(2000);
-			GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-					"127.0.0.1", server.getLocalPort(), "", 2000, 20, offlineNotifications::incrementAndGet);
-			Future<?> query = executor.submit(() -> TaskCancellation.run(cancelled::get, () -> {
-				try {
-					saved.set(client.sampleBiomes(1, 0, 0, 0, 1, 1, 4));
-					client.sampleBiomes(1, 0, 512, 0, 1, 1, 4);
-				} catch (MinecraftInterfaceException e) { throw new AssertionError(e); }
-			}));
-			try (Socket socket = server.accept()) {
-				BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-				assertTrue(reader.readLine().contains("\"command\":\"biomes\""));
-				cancelled.set(true); // Pan after the game has already started this query.
-				socket.getOutputStream().write("{\"ok\":true,\"protocol\":25,\"ids\":[40]}\n".getBytes(StandardCharsets.UTF_8));
-				socket.getOutputStream().flush();
-			}
-			ExecutionException failure = assertThrows(ExecutionException.class, () -> query.get(2, TimeUnit.SECONDS));
-			assertTrue(failure.getCause() instanceof CancellationException);
-			assertArrayEquals(new int[] {40}, saved.get());
-			assertEquals(0, offlineNotifications.get());
-		} finally {
-			executor.shutdownNow();
-		}
-	}
+    @Test(timeout = 5000)
+    public void partialResponseSurvivesPollingTimeoutAndSplitUtf8() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1", server.getLocalPort(), "", 2000, 20, () -> {});
+            Future<int[]> query = executor.submit(() -> client.sampleBiomes(1, 0, 0, 0, 1, 1, 4));
+            try (Socket socket = server.accept()) {
+                new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8))
+                        .readLine();
+                byte[] response =
+                        "{\"note\":\"河\",\"ok\":true,\"protocol\":31,\"ids\":[329]}\n"
+                                .getBytes(StandardCharsets.UTF_8);
+                // Split inside the three-byte character and wait beyond the socket polling
+                // interval.
+                socket.getOutputStream().write(response, 0, 10);
+                socket.getOutputStream().flush();
+                Thread.sleep(450);
+                socket.getOutputStream().write(response, 10, response.length - 10);
+                socket.getOutputStream().flush();
+                assertArrayEquals(new int[] {329}, query.get(2, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	@Test(timeout = 5000)
-	public void cancellingOfflineViewportTaskReleasesRecoveryForTheNextTask() throws Exception {
-		int port;
-		try (ServerSocket reservation = new ServerSocket(0)) {
-			port = reservation.getLocalPort();
-		}
-		CountDownLatch waiting = new CountDownLatch(1);
-		AtomicBoolean cancelled = new AtomicBoolean();
-		GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-				"127.0.0.1", port, "", 200, 2000, waiting::countDown);
-		ExecutorService executor = Executors.newSingleThreadExecutor();
-		try {
-			Future<?> oldView = executor.submit(() -> TaskCancellation.run(cancelled::get, () -> {
-				try { client.getWorkerInfo(); }
-				catch (MinecraftInterfaceException e) { throw new AssertionError(e); }
-			}));
-			assertTrue(waiting.await(2, TimeUnit.SECONDS));
-			cancelled.set(true);
-			ExecutionException failure = assertThrows(ExecutionException.class, () -> oldView.get(1, TimeUnit.SECONDS));
-			assertTrue(failure.getCause() instanceof CancellationException);
-			try (ServerSocket server = new ServerSocket(port)) {
-				server.setSoTimeout(2000);
-				// Same executor thread: cancellation scope must also have been removed.
-				Future<GtnhWorkerInfo> currentView = executor.submit(client::getWorkerInfo);
-				respondToHello(server, HELLO_RESPONSE);
-				assertEquals("RWG", currentView.get(2, TimeUnit.SECONDS).worldType());
-			}
-		} finally {
-			cancelled.set(true);
-			executor.shutdownNow();
-		}
-	}
+    @Test(timeout = 5000)
+    public void interruptingResourceRequestAlsoCancelsWorkerWithoutCancellationScope()
+            throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1", server.getLocalPort(), "", 3000, 20, () -> {});
+            Future<?> query = executor.submit(() -> client.prospect(1, 0, 0, 0, 512, 512, "ORE"));
+            try (Socket socket = server.accept()) {
+                socket.setSoTimeout(1500);
+                BufferedReader reader =
+                        new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8));
+                assertTrue(reader.readLine().contains("\"command\":\"prospecting\""));
+                query.cancel(true);
+                assertEquals(0x18, reader.read());
+                // The same pool thread must become available for the new viewport.
+                assertEquals("ready", executor.submit(() -> "ready").get(1, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	@Test(timeout = 5000)
-	public void cancelledTaskCannotStartAnotherWorkerQuery() {
-		AtomicInteger offlineNotifications = new AtomicInteger();
-		GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-				"127.0.0.1", 1, "", 200, 20, offlineNotifications::incrementAndGet);
-		AtomicBoolean cancelled = new AtomicBoolean();
-		assertThrows(CancellationException.class, () -> TaskCancellation.run(cancelled::get, () -> {
-			cancelled.set(true);
-			try { client.sampleBiomes(1, 0, 0, 0, 1, 1, 4); }
-			catch (MinecraftInterfaceException e) { throw new AssertionError(e); }
-		}));
-		assertEquals(0, offlineNotifications.get());
-		TaskCancellation.check();
-	}
+    @Test(timeout = 5000)
+    public void cancellingInFlightRequestNotifiesWorkerWithoutGoingOffline() throws Exception {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicInteger offlineNotifications = new AtomicInteger();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1",
+                            server.getLocalPort(),
+                            "",
+                            3000,
+                            20,
+                            offlineNotifications::incrementAndGet);
+            Future<?> query =
+                    executor.submit(
+                            () ->
+                                    TaskCancellation.run(
+                                            cancelled::get,
+                                            () -> {
+                                                try {
+                                                    client.sampleBiomes(1, 0, 0, 0, 1, 1, 4);
+                                                } catch (MinecraftInterfaceException e) {
+                                                    throw new AssertionError(e);
+                                                }
+                                            }));
+            try (Socket socket = server.accept()) {
+                socket.setSoTimeout(1500);
+                BufferedReader reader =
+                        new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8));
+                assertTrue(reader.readLine().contains("\"command\":\"biomes\""));
+                cancelled.set(true);
+                assertEquals(0x18, reader.read());
+                ExecutionException failure =
+                        assertThrows(
+                                ExecutionException.class, () -> query.get(1, TimeUnit.SECONDS));
+                assertTrue(failure.getCause() instanceof CancellationException);
+                assertEquals(0, offlineNotifications.get());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	@Test
-	public void optionalProfilingRequestsAndLogsQueueAndComputeTimes() throws Exception {
-		String previous = System.getProperty("amidst.gtnh.profileQueries");
-		CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
-		AmidstLogger.addListener("test-query-profile", (tag, message) -> messages.add(message));
-		ExecutorService executor = Executors.newSingleThreadExecutor();
-		try (ServerSocket server = new ServerSocket(0)) {
-			System.setProperty("amidst.gtnh.profileQueries", "true");
-			Future<?> serving = executor.submit(() -> {
-				try (Socket socket = server.accept();
-						BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-						BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
-					assertTrue(reader.readLine().contains("\"profile\":true"));
-					writer.write("{\"ok\":true,\"protocol\":25,\"worldRevision\":1,\"queueMillis\":12.5,\"computeMillis\":3.25}\n");
-					writer.flush();
-				} catch (Exception e) { throw new RuntimeException(e); }
-			});
-			GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 1000);
-			assertEquals(1L, client.getWorldState(0).revision());
-			serving.get(2, TimeUnit.SECONDS);
-			assertTrue(messages.stream().anyMatch(message -> message.contains("GTNH performance: world_state")
-					&& message.contains("queue=12.500 ms compute=3.250 ms")));
-		} finally {
-			executor.shutdownNow();
-			AmidstLogger.removeListener("test-query-profile");
-			if (previous == null) System.clearProperty("amidst.gtnh.profileQueries");
-			else System.setProperty("amidst.gtnh.profileQueries", previous);
-		}
-	}
+    @Test(timeout = 5000)
+    public void completedResponseSurvivesPanButNextQueryIsCancelled() throws Exception {
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicReference<int[]> saved = new AtomicReference<>();
+        AtomicInteger offlineNotifications = new AtomicInteger();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient(
+                            "127.0.0.1",
+                            server.getLocalPort(),
+                            "",
+                            2000,
+                            20,
+                            offlineNotifications::incrementAndGet);
+            Future<?> query =
+                    executor.submit(
+                            () ->
+                                    TaskCancellation.run(
+                                            cancelled::get,
+                                            () -> {
+                                                try {
+                                                    saved.set(
+                                                            client.sampleBiomes(
+                                                                    1, 0, 0, 0, 1, 1, 4));
+                                                    client.sampleBiomes(1, 0, 512, 0, 1, 1, 4);
+                                                } catch (MinecraftInterfaceException e) {
+                                                    throw new AssertionError(e);
+                                                }
+                                            }));
+            try (Socket socket = server.accept()) {
+                BufferedReader reader =
+                        new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8));
+                assertTrue(reader.readLine().contains("\"command\":\"biomes\""));
+                cancelled.set(true); // Pan after the game has already started this query.
+                socket.getOutputStream()
+                        .write(
+                                "{\"ok\":true,\"protocol\":31,\"ids\":[40]}\n"
+                                        .getBytes(StandardCharsets.UTF_8));
+                socket.getOutputStream().flush();
+            }
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> query.get(2, TimeUnit.SECONDS));
+            assertTrue(failure.getCause() instanceof CancellationException);
+            assertArrayEquals(new int[] {40}, saved.get());
+            assertEquals(0, offlineNotifications.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	private static final String HELLO_RESPONSE = "{\"ok\":true,\"protocol\":"
-			+ GtnhBiomeSource.PROTOCOL_VERSION
-			+ ",\"worldType\":\"RWG\",\"providerClass\":\"test.Provider\","
-			+ "\"chunkManagerClass\":\"test.ChunkManager\",\"biomes\":[{\"id\":40,\"name\":\"Test biome\"}]}";
+    @Test(timeout = 5000)
+    public void cancellingOfflineViewportTaskReleasesRecoveryForTheNextTask() throws Exception {
+        int port;
+        try (ServerSocket reservation = new ServerSocket(0)) {
+            port = reservation.getLocalPort();
+        }
+        CountDownLatch waiting = new CountDownLatch(1);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        GtnhBiomeWorkerClient client =
+                new GtnhBiomeWorkerClient("127.0.0.1", port, "", 200, 2000, waiting::countDown);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> oldView =
+                    executor.submit(
+                            () ->
+                                    TaskCancellation.run(
+                                            cancelled::get,
+                                            () -> {
+                                                try {
+                                                    client.getWorkerInfo();
+                                                } catch (MinecraftInterfaceException e) {
+                                                    throw new AssertionError(e);
+                                                }
+                                            }));
+            assertTrue(waiting.await(2, TimeUnit.SECONDS));
+            cancelled.set(true);
+            ExecutionException failure =
+                    assertThrows(ExecutionException.class, () -> oldView.get(1, TimeUnit.SECONDS));
+            assertTrue(failure.getCause() instanceof CancellationException);
+            try (ServerSocket server = new ServerSocket(port)) {
+                server.setSoTimeout(2000);
+                // Same executor thread: cancellation scope must also have been removed.
+                Future<GtnhWorkerInfo> currentView = executor.submit(client::getWorkerInfo);
+                respondToHello(server, HELLO_RESPONSE);
+                assertEquals("RWG", currentView.get(2, TimeUnit.SECONDS).worldType());
+            }
+        } finally {
+            cancelled.set(true);
+            executor.shutdownNow();
+        }
+    }
 
-	@Test
-	public void startupWaitsForLateWorkerAndUnfinishedGameInitialization() throws Exception {
-		int port;
-		try (ServerSocket reservation = new ServerSocket(0)) {
-			port = reservation.getLocalPort();
-		}
-		CountDownLatch waiting = new CountDownLatch(1);
-		AtomicInteger notifications = new AtomicInteger();
-		GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient("127.0.0.1", port, "", 250, 20, () -> {
-			notifications.incrementAndGet();
-			waiting.countDown();
-		});
-		ExecutorService executor = Executors.newCachedThreadPool();
-		try {
-			// This is the same backend construction used before displaying the main window.
-			Future<GtnhMinecraftInterface> startup = executor.submit(() -> new GtnhMinecraftInterface(client));
-			assertTrue(waiting.await(2, TimeUnit.SECONDS));
-			assertTrue(!startup.isDone());
-			try (ServerSocket server = new ServerSocket(port)) {
-				server.setSoTimeout(3000);
-				Future<?> serving = executor.submit(() -> {
-					try (Socket stalled = server.accept()) {
-						// Keep the first handshake open. Accepting the next one proves
-						// a read timeout did not terminate startup recovery.
-						respondToHello(server, "{\"ok\":false,\"protocol\":" + GtnhBiomeSource.PROTOCOL_VERSION
-								+ ",\"error\":\"server thread did not process the query in time\"}");
-						respondToHello(server, null); // Worker closes an unfinished handshake.
-						respondToHello(server, HELLO_RESPONSE); // Recovery probe.
-						respondToHello(server, HELLO_RESPONSE); // Original startup request.
-                        try (Socket catalog = server.accept()) {
-                            BufferedReader reader = new BufferedReader(new InputStreamReader(catalog.getInputStream(), StandardCharsets.UTF_8));
-                            assertTrue(reader.readLine().contains("prospecting_catalog"));
-                            catalog.getOutputStream().write(("{\"ok\":true,\"protocol\":" + GtnhBiomeSource.PROTOCOL_VERSION
-                                    + ",\"prospectingDimensions\":[]}\n").getBytes(StandardCharsets.UTF_8));
-                        }
-					} catch (Exception e) {
-						throw new RuntimeException(e);
-					}
-				});
-				assertEquals("RWG", startup.get(5, TimeUnit.SECONDS).getWorkerInfo().worldType());
-				serving.get(5, TimeUnit.SECONDS);
-				assertEquals(1, notifications.get());
-			}
-		} finally {
-			executor.shutdownNow();
-		}
-	}
+    @Test(timeout = 5000)
+    public void cancelledTaskCannotStartAnotherWorkerQuery() {
+        AtomicInteger offlineNotifications = new AtomicInteger();
+        GtnhBiomeWorkerClient client =
+                new GtnhBiomeWorkerClient(
+                        "127.0.0.1", 1, "", 200, 20, offlineNotifications::incrementAndGet);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        assertThrows(
+                CancellationException.class,
+                () ->
+                        TaskCancellation.run(
+                                cancelled::get,
+                                () -> {
+                                    cancelled.set(true);
+                                    try {
+                                        client.sampleBiomes(1, 0, 0, 0, 1, 1, 4);
+                                    } catch (MinecraftInterfaceException e) {
+                                        throw new AssertionError(e);
+                                    }
+                                }));
+        assertEquals(0, offlineNotifications.get());
+        TaskCancellation.check();
+    }
 
-	@Test
-	public void startupWaitsWhenWorkerAlreadyListensButHasNotAnsweredHello() throws Exception {
-		try (ServerSocket server = new ServerSocket(0)) {
-			server.setSoTimeout(3000);
-			CountDownLatch waiting = new CountDownLatch(1);
-			ExecutorService executor = Executors.newCachedThreadPool();
-			try {
-				GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-						"127.0.0.1", server.getLocalPort(), "", 250, 20, waiting::countDown);
-				Future<GtnhWorkerInfo> startup = executor.submit(client::getWorkerInfo);
-				try (Socket stalled = server.accept()) {
-					assertTrue(waiting.await(2, TimeUnit.SECONDS));
-					respondToHello(server, HELLO_RESPONSE);
-					respondToHello(server, HELLO_RESPONSE);
-					assertEquals("RWG", startup.get(3, TimeUnit.SECONDS).worldType());
-				}
-			} finally {
-				executor.shutdownNow();
-			}
-		}
-	}
+    @Test
+    public void optionalProfilingRequestsAndLogsQueueAndComputeTimes() throws Exception {
+        String previous = System.getProperty("amidst.gtnh.profileQueries");
+        CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
+        AmidstLogger.addListener("test-query-profile", (tag, message) -> messages.add(message));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (ServerSocket server = new ServerSocket(0)) {
+            System.setProperty("amidst.gtnh.profileQueries", "true");
+            Future<?> serving =
+                    executor.submit(
+                            () -> {
+                                try (Socket socket = server.accept();
+                                        BufferedReader reader =
+                                                new BufferedReader(
+                                                        new InputStreamReader(
+                                                                socket.getInputStream(),
+                                                                StandardCharsets.UTF_8));
+                                        BufferedWriter writer =
+                                                new BufferedWriter(
+                                                        new OutputStreamWriter(
+                                                                socket.getOutputStream(),
+                                                                StandardCharsets.UTF_8))) {
+                                    assertTrue(reader.readLine().contains("\"profile\":true"));
+                                    writer.write(
+                                            "{\"ok\":true,\"protocol\":31,\"worldRevision\":1,\"queueMillis\":12.5,\"computeMillis\":3.25}\n");
+                                    writer.flush();
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                }
+                            });
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 1000);
+            assertEquals(1L, client.getWorldState(0).revision());
+            serving.get(2, TimeUnit.SECONDS);
+            assertTrue(
+                    messages.stream()
+                            .anyMatch(
+                                    message ->
+                                            message.contains("GTNH performance: world_state")
+                                                    && message.contains(
+                                                            "queue=12.500 ms game=3.250 ms")));
+        } finally {
+            executor.shutdownNow();
+            AmidstLogger.removeListener("test-query-profile");
+            if (previous == null) System.clearProperty("amidst.gtnh.profileQueries");
+            else System.setProperty("amidst.gtnh.profileQueries", previous);
+        }
+    }
 
-	@Test
-	public void recoveryReportsAuthenticationAndProtocolErrorsInsteadOfWaitingForever() throws Exception {
-		String[] responses = {
-				"{\"ok\":false,\"protocol\":" + GtnhBiomeSource.PROTOCOL_VERSION + ",\"error\":\"authentication failed\"}",
-				"{\"ok\":true,\"protocol\":-1}"
-		};
-		String[] errors = { "authentication failed", "protocol is -1" };
-		for (int i = 0; i < responses.length; i++) {
-			int port;
-			try (ServerSocket reservation = new ServerSocket(0)) {
-				port = reservation.getLocalPort();
-			}
-			CountDownLatch waiting = new CountDownLatch(1);
-			GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient("127.0.0.1", port, "", 1000, 20, waiting::countDown);
-			ExecutorService executor = Executors.newSingleThreadExecutor();
-			try {
-				Future<GtnhWorkerInfo> startup = executor.submit(client::getWorkerInfo);
-				assertTrue(waiting.await(2, TimeUnit.SECONDS));
-				try (ServerSocket server = new ServerSocket(port)) {
-					server.setSoTimeout(3000);
-					respondToHello(server, responses[i]);
-				}
-				ExecutionException failure = assertThrows(ExecutionException.class, () -> startup.get(3, TimeUnit.SECONDS));
-				assertTrue(failure.getCause() instanceof MinecraftInterfaceException);
-				assertTrue(failure.getCause().getMessage().contains(errors[i]));
-			} finally {
-				executor.shutdownNow();
-			}
-		}
-	}
+    private static final String HELLO_RESPONSE =
+            "{\"ok\":true,\"protocol\":"
+                    + GtnhBiomeSource.PROTOCOL_VERSION
+                    + ",\"worldType\":\"RWG\",\"providerClass\":\"test.Provider\",\"chunkManagerClass\":\"test.ChunkManager\",\"biomes\":[{\"id\":40,\"name\":\"Test"
+                    + " biome\"}]}";
 
-	private static void respondToHello(ServerSocket server, String response) throws Exception {
-		try (Socket socket = server.accept()) {
-			socket.setSoTimeout(3000);
-			BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-			assertTrue(reader.readLine().contains("\"command\":\"hello\""));
-			if (response != null) {
-				BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
-				writer.write(response);
-				writer.newLine();
-				writer.flush();
-			}
-		}
-	}
+    @Test
+    public void startupWaitsForLateWorkerAndUnfinishedGameInitialization() throws Exception {
+        int port;
+        try (ServerSocket reservation = new ServerSocket(0)) {
+            port = reservation.getLocalPort();
+        }
+        CountDownLatch waiting = new CountDownLatch(1);
+        AtomicInteger notifications = new AtomicInteger();
+        GtnhBiomeWorkerClient client =
+                new GtnhBiomeWorkerClient(
+                        "127.0.0.1",
+                        port,
+                        "",
+                        250,
+                        20,
+                        () -> {
+                            notifications.incrementAndGet();
+                            waiting.countDown();
+                        });
+        ExecutorService executor = Executors.newCachedThreadPool();
+        try {
+            // This is the same backend construction used before displaying the main window.
+            Future<GtnhMinecraftInterface> startup =
+                    executor.submit(() -> new GtnhMinecraftInterface(client));
+            assertTrue(waiting.await(2, TimeUnit.SECONDS));
+            assertTrue(!startup.isDone());
+            try (ServerSocket server = new ServerSocket(port)) {
+                server.setSoTimeout(3000);
+                Future<?> serving =
+                        executor.submit(
+                                () -> {
+                                    try (Socket stalled = server.accept()) {
+                                        // Keep the first handshake open. Accepting the next one
+                                        // proves
+                                        // a read timeout did not terminate startup recovery.
+                                        respondToHello(
+                                                server,
+                                                "{\"ok\":false,\"protocol\":"
+                                                        + GtnhBiomeSource.PROTOCOL_VERSION
+                                                        + ",\"error\":\"server thread did not"
+                                                        + " process the query in time\"}");
+                                        respondToHello(
+                                                server,
+                                                null); // Worker closes an unfinished handshake.
+                                        respondToHello(server, HELLO_RESPONSE); // Recovery probe.
+                                        respondToHello(
+                                                server,
+                                                HELLO_RESPONSE); // Original startup request.
+                                        try (Socket catalog = server.accept()) {
+                                            BufferedReader reader =
+                                                    new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    catalog.getInputStream(),
+                                                                    StandardCharsets.UTF_8));
+                                            assertTrue(
+                                                    reader.readLine()
+                                                            .contains("prospecting_catalog"));
+                                            catalog.getOutputStream()
+                                                    .write(
+                                                            ("{\"ok\":true,\"protocol\":"
+                                                                            + GtnhBiomeSource
+                                                                                    .PROTOCOL_VERSION
+                                                                            + ",\"prospectingDimensions\":[]}\n")
+                                                                    .getBytes(
+                                                                            StandardCharsets
+                                                                                    .UTF_8));
+                                        }
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+                assertEquals("RWG", startup.get(5, TimeUnit.SECONDS).getWorkerInfo().worldType());
+                serving.get(5, TimeUnit.SECONDS);
+                assertEquals(1, notifications.get());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	@Test
-	public void reachableButStalledWorkerIsNotReportedAsOffline() throws Exception {
-		try (ServerSocket server = new ServerSocket(0)) {
-			ExecutorService executor = Executors.newSingleThreadExecutor();
-			CountDownLatch releaseServer = new CountDownLatch(1);
-			AtomicInteger offlineNotifications = new AtomicInteger();
-			try {
-				Future<?> serving = executor.submit(() -> {
-					try (Socket socket = server.accept()) {
-						releaseServer.await(3, TimeUnit.SECONDS);
-					} catch (Exception e) {
-						throw new RuntimeException(e);
-					}
-				});
-				GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-						"127.0.0.1", server.getLocalPort(), "", 100, 20,
-						offlineNotifications::incrementAndGet);
-				MinecraftInterfaceException failure = assertThrows(
-						MinecraftInterfaceException.class, () -> client.getWorldState(0));
-				assertTrue(failure.getMessage().contains("Connected to GTNH worker"));
-				assertTrue(failure.getMessage().contains("world_state"));
-				assertTrue(failure.getMessage().contains("timed out"));
-				assertEquals(0, offlineNotifications.get());
-				releaseServer.countDown();
-				serving.get(2, TimeUnit.SECONDS);
-			} finally {
-				releaseServer.countDown();
-				executor.shutdownNow();
-			}
-		}
-	}
+    @Test
+    public void startupWaitsWhenWorkerAlreadyListensButHasNotAnsweredHello() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(3000);
+            CountDownLatch waiting = new CountDownLatch(1);
+            ExecutorService executor = Executors.newCachedThreadPool();
+            try {
+                GtnhBiomeWorkerClient client =
+                        new GtnhBiomeWorkerClient(
+                                "127.0.0.1",
+                                server.getLocalPort(),
+                                "",
+                                250,
+                                20,
+                                waiting::countDown);
+                Future<GtnhWorkerInfo> startup = executor.submit(client::getWorkerInfo);
+                try (Socket stalled = server.accept()) {
+                    assertTrue(waiting.await(2, TimeUnit.SECONDS));
+                    respondToHello(server, HELLO_RESPONSE);
+                    respondToHello(server, HELLO_RESPONSE);
+                    assertEquals("RWG", startup.get(3, TimeUnit.SECONDS).worldType());
+                }
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-	@Test
-	public void workerLinkageErrorIsPreservedInsteadOfStartingOfflineRecovery() throws Exception {
-		try (ServerSocket server = new ServerSocket(0)) {
-			ExecutorService executor = Executors.newSingleThreadExecutor();
-			AtomicInteger offlineNotifications = new AtomicInteger();
-			try {
-				Future<?> serving = executor.submit(() -> {
-					try (Socket socket = server.accept();
-							BufferedReader reader = new BufferedReader(new InputStreamReader(
-									socket.getInputStream(), StandardCharsets.UTF_8));
-							BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
-									socket.getOutputStream(), StandardCharsets.UTF_8))) {
-						reader.readLine();
-						writer.write("{\"ok\":false,\"protocol\":" + GtnhBiomeSource.PROTOCOL_VERSION
-								+ ",\"error\":\"NoSuchFieldError: isRemote\"}\n");
-						writer.flush();
-					} catch (Exception e) {
-						throw new RuntimeException(e);
-					}
-				});
-				GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-						"127.0.0.1", server.getLocalPort(), "", 1000, 20,
-						offlineNotifications::incrementAndGet);
-				MinecraftInterfaceException failure = assertThrows(
-						MinecraftInterfaceException.class, () -> client.getWorldState(0));
-				assertTrue(failure.getMessage().contains("NoSuchFieldError: isRemote"));
-				assertEquals(0, offlineNotifications.get());
-				serving.get(2, TimeUnit.SECONDS);
-			} finally {
-				executor.shutdownNow();
-			}
-		}
-	}
+    @Test
+    public void recoveryReportsAuthenticationAndProtocolErrorsInsteadOfWaitingForever()
+            throws Exception {
+        String[] responses = {
+            "{\"ok\":false,\"protocol\":"
+                    + GtnhBiomeSource.PROTOCOL_VERSION
+                    + ",\"error\":\"authentication failed\"}",
+            "{\"ok\":true,\"protocol\":-1}"
+        };
+        String[] errors = {"authentication failed", "protocol is -1"};
+        for (int i = 0; i < responses.length; i++) {
+            int port;
+            try (ServerSocket reservation = new ServerSocket(0)) {
+                port = reservation.getLocalPort();
+            }
+            CountDownLatch waiting = new CountDownLatch(1);
+            GtnhBiomeWorkerClient client =
+                    new GtnhBiomeWorkerClient("127.0.0.1", port, "", 1000, 20, waiting::countDown);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<GtnhWorkerInfo> startup = executor.submit(client::getWorkerInfo);
+                assertTrue(waiting.await(2, TimeUnit.SECONDS));
+                try (ServerSocket server = new ServerSocket(port)) {
+                    server.setSoTimeout(3000);
+                    respondToHello(server, responses[i]);
+                }
+                ExecutionException failure =
+                        assertThrows(
+                                ExecutionException.class, () -> startup.get(3, TimeUnit.SECONDS));
+                assertTrue(failure.getCause() instanceof MinecraftInterfaceException);
+                assertTrue(failure.getCause().getMessage().contains(errors[i]));
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-	@Test
-	public void waitsForWorkerAndRetriesTheInterruptedRequest() throws Exception {
-		int port;
-		try (ServerSocket reservation = new ServerSocket(0)) {
-			port = reservation.getLocalPort();
-		}
+    private static void respondToHello(ServerSocket server, String response) throws Exception {
+        try (Socket socket = server.accept()) {
+            socket.setSoTimeout(3000);
+            BufferedReader reader =
+                    new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            assertTrue(reader.readLine().contains("\"command\":\"hello\""));
+            if (response != null) {
+                BufferedWriter writer =
+                        new BufferedWriter(
+                                new OutputStreamWriter(
+                                        socket.getOutputStream(), StandardCharsets.UTF_8));
+                writer.write(response);
+                writer.newLine();
+                writer.flush();
+            }
+        }
+    }
 
-		CountDownLatch offlineNotification = new CountDownLatch(1);
-		AtomicInteger notificationCount = new AtomicInteger();
-		GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-				"127.0.0.1",
-				port,
-				"",
-				50,
-				20,
-				() -> {
-					notificationCount.incrementAndGet();
-					offlineNotification.countDown();
-				});
-		ExecutorService executor = Executors.newCachedThreadPool();
-		try {
-			Future<int[]> request = executor.submit(
-					() -> client.sampleBiomes(123L, 0, 0, 0, 1, 1, 1));
+    @Test(timeout = 5000)
+    public void reachableButStalledWorkerIsNotReportedAsOffline() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            AtomicInteger offlineNotifications = new AtomicInteger();
+            try {
+                Future<?> serving =
+                        executor.submit(
+                                () -> {
+                                    try (Socket socket = server.accept()) {
+                                        socket.setSoTimeout(2000);
+                                        var reader =
+                                                new BufferedReader(
+                                                        new InputStreamReader(
+                                                                socket.getInputStream(),
+                                                                StandardCharsets.UTF_8));
+                                        assertTrue(reader.readLine().contains("world_state"));
+                                        assertEquals(
+                                                "Timed-out work must be cancelled on the Worker",
+                                                0x18,
+                                                reader.read());
+                                        try (Socket retry = server.accept()) {
+                                            var retryReader =
+                                                    new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    retry.getInputStream(),
+                                                                    StandardCharsets.UTF_8));
+                                            assertTrue(
+                                                    retryReader.readLine().contains("world_state"));
+                                            retry.getOutputStream()
+                                                    .write(
+                                                            "{\"ok\":true,\"protocol\":31,\"worldRevision\":9}\n"
+                                                                    .getBytes(
+                                                                            StandardCharsets
+                                                                                    .UTF_8));
+                                        }
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+                GtnhBiomeWorkerClient client =
+                        new GtnhBiomeWorkerClient(
+                                "127.0.0.1",
+                                server.getLocalPort(),
+                                "",
+                                100,
+                                20,
+                                offlineNotifications::incrementAndGet);
+                assertEquals(9, client.getWorldState(0).revision());
+                assertEquals(0, offlineNotifications.get());
+                serving.get(2, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-			assertTrue(offlineNotification.await(2, TimeUnit.SECONDS));
-			Future<?> server = executor.submit(() -> serveRecoveryAndBiomeRequest(port));
+    @Test(timeout = 6000)
+    public void emptyTruncatedAndBusyResponsesRetryUntilTheMapCompletes() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(2000);
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            AtomicInteger offline = new AtomicInteger();
+            try {
+                Future<?> serving =
+                        executor.submit(
+                                () -> {
+                                    String[] replies = {
+                                        null,
+                                        "{\"ok\":true",
+                                        "{\"ok\":false,\"protocol\":31,\"error\":\"server thread"
+                                                + " did not process the query in time\"}\n",
+                                        "{\"ok\":false,\"protocol\":31,\"error\":\"worker is busy;"
+                                                + " retry later\"}\n",
+                                        "{\"ok\":true,\"protocol\":31,\"structures\":[]}\n"
+                                    };
+                                    try {
+                                        for (String reply : replies)
+                                            try (Socket socket = server.accept()) {
+                                                var reader =
+                                                        new BufferedReader(
+                                                                new InputStreamReader(
+                                                                        socket.getInputStream(),
+                                                                        StandardCharsets.UTF_8));
+                                                assertTrue(
+                                                        reader.readLine().contains("structures"));
+                                                if (reply != null)
+                                                    socket.getOutputStream()
+                                                            .write(
+                                                                    reply.getBytes(
+                                                                            StandardCharsets
+                                                                                    .UTF_8));
+                                            }
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+                var client =
+                        new GtnhBiomeWorkerClient(
+                                "127.0.0.1",
+                                server.getLocalPort(),
+                                "",
+                                1000,
+                                20,
+                                offline::incrementAndGet);
+                assertTrue(client.sampleStructures(7, 0, 0, 0, 512, 512).isEmpty());
+                serving.get(2, TimeUnit.SECONDS);
+                assertEquals(0, offline.get());
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-			assertArrayEquals(new int[] { 40 }, request.get(5, TimeUnit.SECONDS));
-			server.get(5, TimeUnit.SECONDS);
-			assertEquals(1, notificationCount.get());
-		} finally {
-			executor.shutdownNow();
-		}
-	}
+    @Test
+    public void workerLinkageErrorIsPreservedInsteadOfStartingOfflineRecovery() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            AtomicInteger offlineNotifications = new AtomicInteger();
+            try {
+                Future<?> serving =
+                        executor.submit(
+                                () -> {
+                                    try (Socket socket = server.accept();
+                                            BufferedReader reader =
+                                                    new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    socket.getInputStream(),
+                                                                    StandardCharsets.UTF_8));
+                                            BufferedWriter writer =
+                                                    new BufferedWriter(
+                                                            new OutputStreamWriter(
+                                                                    socket.getOutputStream(),
+                                                                    StandardCharsets.UTF_8))) {
+                                        reader.readLine();
+                                        writer.write(
+                                                "{\"ok\":false,\"protocol\":"
+                                                        + GtnhBiomeSource.PROTOCOL_VERSION
+                                                        + ",\"error\":\"NoSuchFieldError:"
+                                                        + " isRemote\"}\n");
+                                        writer.flush();
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+                GtnhBiomeWorkerClient client =
+                        new GtnhBiomeWorkerClient(
+                                "127.0.0.1",
+                                server.getLocalPort(),
+                                "",
+                                1000,
+                                20,
+                                offlineNotifications::incrementAndGet);
+                MinecraftInterfaceException failure =
+                        assertThrows(
+                                MinecraftInterfaceException.class, () -> client.getWorldState(0));
+                assertTrue(failure.getMessage().contains("NoSuchFieldError: isRemote"));
+                assertEquals(0, offlineNotifications.get());
+                serving.get(2, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
 
-	@Test
-	public void readsIncrementalOverworldChunkState() throws Exception {
-		try (ServerSocket server = new ServerSocket(0)) {
-			ExecutorService executor = Executors.newSingleThreadExecutor();
-			try {
-				Future<?> response = executor.submit(() -> {
-					try (Socket socket = server.accept();
-							BufferedReader reader = new BufferedReader(
-									new InputStreamReader(
-											socket.getInputStream(),
-											StandardCharsets.UTF_8));
-							BufferedWriter writer = new BufferedWriter(
-									new OutputStreamWriter(
-											socket.getOutputStream(),
-											StandardCharsets.UTF_8))) {
-						String request = reader.readLine();
-						assertTrue(request.contains("\"command\":\"world_state\""));
-						assertTrue(request.contains("\"sinceRevision\":7"));
-						writer.write("{\"ok\":true,\"protocol\":"
-								+ GtnhBiomeSource.PROTOCOL_VERSION
-								+ ",\"worldRevision\":10,\"fullRefresh\":false,"
-								+ "\"chunkXs\":[2,-3],\"chunkZs\":[4,5]}");
-						writer.newLine();
-						writer.flush();
-					} catch (Exception e) {
-						throw new RuntimeException(e);
-					}
-				});
+    @Test
+    public void waitsForWorkerAndRetriesTheInterruptedRequest() throws Exception {
+        int port;
+        try (ServerSocket reservation = new ServerSocket(0)) {
+            port = reservation.getLocalPort();
+        }
 
-				GtnhBiomeWorkerClient client = new GtnhBiomeWorkerClient(
-						"127.0.0.1",
-						server.getLocalPort(),
-						"",
-						1_000);
-				GtnhWorldState state = client.getWorldState(7L);
+        CountDownLatch offlineNotification = new CountDownLatch(1);
+        AtomicInteger notificationCount = new AtomicInteger();
+        GtnhBiomeWorkerClient client =
+                new GtnhBiomeWorkerClient(
+                        "127.0.0.1",
+                        port,
+                        "",
+                        50,
+                        20,
+                        () -> {
+                            notificationCount.incrementAndGet();
+                            offlineNotification.countDown();
+                        });
+        ExecutorService executor = Executors.newCachedThreadPool();
+        try {
+            Future<int[]> request =
+                    executor.submit(() -> client.sampleBiomes(123L, 0, 0, 0, 1, 1, 1));
 
-				assertEquals(10L, state.revision());
-				assertTrue(!state.fullRefresh());
-				assertArrayEquals(new int[] { 2, -3 }, state.chunkXs());
-				assertArrayEquals(new int[] { 4, 5 }, state.chunkZs());
-				response.get(5, TimeUnit.SECONDS);
-			} finally {
-				executor.shutdownNow();
-			}
-		}
-	}
+            assertTrue(offlineNotification.await(2, TimeUnit.SECONDS));
+            Future<?> server = executor.submit(() -> serveRecoveryAndBiomeRequest(port));
 
-	private static void serveRecoveryAndBiomeRequest(int port) {
-		try (ServerSocket server = new ServerSocket(port)) {
-			serve(server, "\"command\":\"hello\"");
-			serve(server, "\"command\":\"biomes\"");
-		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
+            assertArrayEquals(new int[] {40}, request.get(5, TimeUnit.SECONDS));
+            server.get(5, TimeUnit.SECONDS);
+            assertEquals(1, notificationCount.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
-	private static void serve(ServerSocket server, String expectedCommand) throws Exception {
-		try (Socket socket = server.accept();
-				BufferedReader reader = new BufferedReader(
-						new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-				BufferedWriter writer = new BufferedWriter(
-						new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
-			String request = reader.readLine();
-			assertTrue(request.contains(expectedCommand));
-			writer.write("{\"ok\":true,\"protocol\":"
-					+ GtnhBiomeSource.PROTOCOL_VERSION
-					+ ",\"ids\":[40]}");
-			writer.newLine();
-			writer.flush();
-		}
-	}
+    @Test
+    public void readsIncrementalOverworldChunkState() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> response =
+                        executor.submit(
+                                () -> {
+                                    try (Socket socket = server.accept();
+                                            BufferedReader reader =
+                                                    new BufferedReader(
+                                                            new InputStreamReader(
+                                                                    socket.getInputStream(),
+                                                                    StandardCharsets.UTF_8));
+                                            BufferedWriter writer =
+                                                    new BufferedWriter(
+                                                            new OutputStreamWriter(
+                                                                    socket.getOutputStream(),
+                                                                    StandardCharsets.UTF_8))) {
+                                        String request = reader.readLine();
+                                        assertTrue(request.contains("\"command\":\"world_state\""));
+                                        assertTrue(request.contains("\"sinceRevision\":7"));
+                                        writer.write(
+                                                "{\"ok\":true,\"protocol\":"
+                                                        + GtnhBiomeSource.PROTOCOL_VERSION
+                                                        + ",\"worldRevision\":10,\"fullRefresh\":false,"
+                                                        + "\"chunkXs\":[2,-3],\"chunkZs\":[4,5]}");
+                                        writer.newLine();
+                                        writer.flush();
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+
+                GtnhBiomeWorkerClient client =
+                        new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 1_000);
+                GtnhWorldState state = client.getWorldState(7L);
+
+                assertEquals(10L, state.revision());
+                assertTrue(!state.fullRefresh());
+                assertArrayEquals(new int[] {2, -3}, state.chunkXs());
+                assertArrayEquals(new int[] {4, 5}, state.chunkZs());
+                response.get(5, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    private static void serveRecoveryAndBiomeRequest(int port) {
+        try (ServerSocket server = new ServerSocket(port)) {
+            serve(server, "\"command\":\"hello\"");
+            serve(server, "\"command\":\"biomes\"");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void serve(ServerSocket server, String expectedCommand) throws Exception {
+        try (Socket socket = server.accept();
+                BufferedReader reader =
+                        new BufferedReader(
+                                new InputStreamReader(
+                                        socket.getInputStream(), StandardCharsets.UTF_8));
+                BufferedWriter writer =
+                        new BufferedWriter(
+                                new OutputStreamWriter(
+                                        socket.getOutputStream(), StandardCharsets.UTF_8))) {
+            String request = reader.readLine();
+            assertTrue(request.contains(expectedCommand));
+            writer.write(
+                    "{\"ok\":true,\"protocol\":"
+                            + GtnhBiomeSource.PROTOCOL_VERSION
+                            + ",\"ids\":[40]}");
+            writer.newLine();
+            writer.flush();
+        }
+    }
 }

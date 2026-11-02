@@ -21,8 +21,8 @@ import amidst.mojangapi.world.Dimension;
 public class GtnhCoordinateExportTest {
 	@Test
 	public void catalogueContainsEveryCurrentGtnhCoordinateLayer() {
-		assertEquals(67 + 2 * Dimension.values().length, GtnhCoordinateType.all().size());
-		assertEquals(20, GtnhCoordinateType.forDimension(Dimension.OVERWORLD).size());
+		assertEquals(72 + 2 * Dimension.values().length, GtnhCoordinateType.all().size());
+		assertEquals(25, GtnhCoordinateType.forDimension(Dimension.OVERWORLD).size());
 		assertEquals(6, GtnhCoordinateType.forDimension(Dimension.NETHER).size());
 		assertEquals(8, GtnhCoordinateType.forDimension(Dimension.END).size());
 		assertEquals(4, GtnhCoordinateType.forDimension(Dimension.MOON).size());
