@@ -2,7 +2,8 @@
 param(
     [ValidatePattern('^$|^[a-z0-9]+(?:-[a-z0-9]+)*$')]
     [string]$PackageSuffix = '',
-    [string]$ReleaseNotes = ''
+    [string]$ReleaseNotes = '',
+    [string]$ReleaseDirectory = 'build/release'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -48,8 +49,9 @@ try {
             try { $reader.ReadToEnd() } finally { $reader.Dispose() }
         } finally { $archive.Dispose() }
     }
-    $viewerPath = Join-Path $repo "build/release/$viewerName"
-    $workerPath = Join-Path $repo "build/release/$workerName"
+    $releaseRoot = (Resolve-Path -LiteralPath $ReleaseDirectory).Path
+    $viewerPath = Join-Path $releaseRoot $viewerName
+    $workerPath = Join-Path $releaseRoot $workerName
     $packagedMetadata = ConvertFrom-StringData (Read-ZipText $viewerPath 'amidst/metadata.properties')
     if ($packagedMetadata['amidst.build.filename'] -ne $metadata['amidst.build.filename'] -or
         $packagedMetadata['amidst.release.version'] -ne $releaseVersion) { throw 'Viewer version mismatch' }

@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 
 /**
  * Game-thread-owned searches for independent seeds. Retaining a job across socket timeouts
@@ -28,10 +29,15 @@ final class SpawnSearchCache {
     }
 
     SpawnSearch.Job get(long seed, String provider) {
-        String key = seed + ":" + provider;
+        return get(seed, provider, OverworldGenerator.ALPHA, () -> samplers.apply(seed));
+    }
+
+    SpawnSearch.Job get(
+            long seed, String provider, String generator, Supplier<SurfaceBiomeSampler> factory) {
+        String key = seed + ":" + provider + ":" + generator;
         SpawnSearch.Job search = searches.get(key);
         if (search == null) {
-            SurfaceBiomeSampler sampler = samplers.apply(seed);
+            SurfaceBiomeSampler sampler = factory.get();
             search =
                     new SpawnSearch.Job(
                             seed,

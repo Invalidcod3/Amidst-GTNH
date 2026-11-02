@@ -16,9 +16,7 @@ import amidst.settings.Setting;
 
 @NotThreadSafe
 public class FragmentManager {
-	// Worker predictions run serially on the game thread. Keep the remote backlog small.
-	private static final int GTNH_CONCURRENT_FRAGMENTS = 2;
-	private static final int GTNH_MAX_CONCURRENT_FRAGMENTS = 4;
+	private static final int GTNH_MAX_CONCURRENT_FRAGMENTS = 64;
 	private final ConcurrentLinkedQueue<Fragment> availableQueue = new ConcurrentLinkedQueue<>();
 	private final ConcurrentLinkedQueue<Fragment> loadingQueue = new ConcurrentLinkedQueue<>();
 	private final ConcurrentLinkedQueue<Fragment> recycleQueue = new ConcurrentLinkedQueue<>();
@@ -38,7 +36,7 @@ public class FragmentManager {
 	}
 	
 	public ThreadPoolExecutor createThreadPool() {
-		return (ThreadPoolExecutor) Executors.newFixedThreadPool(threadsSetting.get(), new ThreadFactory() {
+		ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(threadsSetting.get(), new ThreadFactory() {
 			private int num;
 			
 			@Override
@@ -46,6 +44,9 @@ public class FragmentManager {
 				return new Thread(r, "Fragment-Worker-" + num++);
 			}
 		});
+		pool.setKeepAliveTime(5L, java.util.concurrent.TimeUnit.SECONDS);
+		pool.allowCoreThreadTimeOut(true);
+		return pool;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -66,8 +67,16 @@ public class FragmentManager {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	public FragmentQueueProcessor createQueueProcessor(
-			LayerManager layerManager, Setting<Dimension> dimensionSetting, boolean usesGtnhWorker) {
+			LayerManager layerManager, Setting<Dimension> dimensionSetting, boolean usesGtnhWorker,
+            boolean parallelSmooth) {
 		this.dimensionSetting = dimensionSetting;
+        cache.setSynchronizedPublication(usesGtnhWorker && parallelSmooth);
+		int concurrency = usesGtnhWorker
+				? Math.max(1, Math.min(parallelSmooth ? GTNH_MAX_CONCURRENT_FRAGMENTS : 4,
+						Integer.getInteger("amidst.gtnh.concurrentFragments", fragWorkers.getMaximumPoolSize())))
+				: fragWorkers.getMaximumPoolSize();
+		if (usesGtnhWorker) amidst.gtnh.worker.GtnhBiomeWorkerClient.setSamplingParallelism(
+				Math.min(GTNH_MAX_CONCURRENT_FRAGMENTS, fragWorkers.getMaximumPoolSize()));
 		queueProcessor = new FragmentQueueProcessor(
 				loadingQueue,
 				recycleQueue,
@@ -76,9 +85,7 @@ public class FragmentManager {
 				fragWorkers,
 				dimensionSetting,
 				() -> viewport,
-				usesGtnhWorker ? Math.max(1, Math.min(GTNH_MAX_CONCURRENT_FRAGMENTS,
-						Integer.getInteger("amidst.gtnh.concurrentFragments", GTNH_CONCURRENT_FRAGMENTS)))
-						: fragWorkers.getMaximumPoolSize());
+				concurrency, usesGtnhWorker && parallelSmooth);
 		return queueProcessor;
 	}
 

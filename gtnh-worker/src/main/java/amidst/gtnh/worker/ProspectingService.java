@@ -100,6 +100,9 @@ final class ProspectingService {
         return start(seed, dimension, x, z, width, height, mode, null);
     }
     Job start(long seed, int dimension, int x, int z, int width, int height, String mode, QueryFilter filter) {
+        return start(seed, dimension, x, z, width, height, mode, filter, OverworldGenerator.ALPHA);
+    }
+    Job start(long seed, int dimension, int x, int z, int width, int height, String mode, QueryFilter filter, String generator) {
         catalog();
         if (!names.containsKey(dimension)) throw new IllegalArgumentException("No prospecting registry for dimension " + dimension);
         if (!"ORES".equals(mode) && !"FLUID".equals(mode)) throw new IllegalArgumentException("Unknown marker mode");
@@ -108,19 +111,19 @@ final class ProspectingService {
             throw new IllegalArgumentException("Prospecting area must be within 512 by 512 blocks");
         if (filter != null && (filter.minimumFluid < 0 || filter.minY < 0 || filter.maxY > 255 || filter.minY > filter.maxY))
             throw new IllegalArgumentException("Invalid prospecting export conditions");
-        return new Job(seed, dimension, x, z, width, height, "FLUID".equals(mode), filter);
+        return new Job(seed, dimension, x, z, width, height, "FLUID".equals(mode), filter, generator);
     }
 
     final class Job {
         final long seed;
         final int dimension, minX, minZ, endX, endZ, stride;
-        final boolean fluids;
+        final boolean fluids, useRecords;
         final QueryFilter filter;
         final WorldServer context;
         final WorldServer dimensionContext;
         final Tile result = new Tile();
         int x, z;
-        Job(long seed, int dimension, int bx, int bz, int width, int height, boolean fluids, QueryFilter filter) {
+        Job(long seed, int dimension, int bx, int bz, int width, int height, boolean fluids, QueryFilter filter, String generator) {
             this.filter = filter;
             this.seed = seed; this.dimension = dimension; this.fluids = fluids;
             stride = fluids ? 8 : 1;
@@ -130,6 +133,7 @@ final class ProspectingService {
             endZ = Math.floorDiv(bz + height - 1, 16 * stride) * stride;
             x = minX; z = minZ;
             context = DimensionManager.getWorld(0);
+            useRecords = OverworldGenerator.matches(context, seed, generator);
             dimensionContext = DimensionManager.getWorld(dimension);
             result.deposits = new ArrayList<>();
             result.message = fluids ? "Initial production; recorded chunks show current production (L/Op)"
@@ -141,7 +145,7 @@ final class ProspectingService {
                 throw new IllegalStateException("World changed during prospecting");
             try {
                 do {
-                    Deposit d = fluids ? fluid(seed, dimension, x, z, filter) : ore(seed, dimension, x, z, filter);
+                    Deposit d = fluids ? fluid(seed, dimension, x, z, filter, useRecords) : ore(seed, dimension, x, z, filter, useRecords);
                     if (d != null && (filter == null || filter.accepts(d))) result.deposits.add(d);
                     x += stride;
                     if (x > endX) { x = minX; z += stride; }
@@ -255,6 +259,9 @@ final class ProspectingService {
     }
 
     private Deposit fluid(long seed, int dim, int cx, int cz, QueryFilter filter) throws ReflectiveOperationException {
+        return fluid(seed, dim, cx, cz, filter, true);
+    }
+    private Deposit fluid(long seed, int dim, int cx, int cz, QueryFilter filter, boolean useRecords) throws ReflectiveOperationException {
         Object config = fluidDefinitions.get(dim);
         if (config == null) return null;
         // Exactly UndergroundOil.getPristineAmount, but one RNG walk per field instead of 64 resets.
@@ -276,7 +283,7 @@ final class ProspectingService {
         Object storage = null;
         Method created = null, get = null;
         WorldServer world = DimensionManager.getWorld(dim);
-        if (world != null && world.getWorldInfo().getSeed() == seed) {
+        if (useRecords && world != null && world.getWorldInfo().getSeed() == seed) {
             Field f = type("gregtech.common.UndergroundOil").getDeclaredField("STORAGE");
             f.setAccessible(true); storage = f.get(null);
             Class<?> base = storage.getClass().getSuperclass();

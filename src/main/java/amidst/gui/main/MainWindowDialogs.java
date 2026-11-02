@@ -129,10 +129,13 @@ public class MainWindowDialogs {
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
+    public boolean isGtnh() { return runningLauncherProfile.isGtnh(); }
+    public List<WorldType> worldTypes() { return runningLauncherProfile.worldTypes(); }
+
 	public WorldType askForWorldType() {
-		String worldTypeSetting = settings.worldType.get();
-		if (worldTypeSetting.equals(WorldType.PROMPT_EACH_TIME)) {
-			return askForOptions("World Type", "Enter world type\n", WorldType.getSelectable());
+		String worldTypeSetting = (isGtnh() ? settings.gtnhWorldType : settings.worldType).get();
+		if (worldTypeSetting.equals(WorldType.PROMPT_EACH_TIME) || !worldTypes().contains(WorldType.findInstance(worldTypeSetting))) {
+			return askForOptions("World Type", "Enter world type\n", worldTypes());
 		} else {
 			return WorldType.from(worldTypeSetting);
 		}

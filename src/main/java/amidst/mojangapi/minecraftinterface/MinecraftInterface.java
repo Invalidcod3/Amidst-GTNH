@@ -60,6 +60,6 @@ public interface MinecraftInterface {
 				boolean useQuarterResolution, Function<int[], T> biomeDataMapper)
 				throws MinecraftInterfaceException;
 		
-		public Set<Dimension> supportedDimensions();
+        public Set<Dimension> supportedDimensions();
 	}
 }

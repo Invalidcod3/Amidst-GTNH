@@ -59,14 +59,18 @@ final class MapCacheIdentity {
     }
 
     String viewIdentity(long seed) {
+        return viewIdentity(seed, OverworldGenerator.ALPHA);
+    }
+
+    String viewIdentity(long seed, String generator) {
         String environment = preparation.getIfReady();
         if (environment == null) return null;
         try {
             MessageDigest d = MessageDigest.getInstance("SHA-256");
             add(d, environment);
-            add(d, "map-v23:" + seed);
+            add(d, "map-v26:" + seed + ":" + OverworldGenerator.identity(generator));
             WorldServer world = DimensionManager.getWorld(0);
-            if (world != null && world.getSeed() == seed) {
+            if (OverworldGenerator.matches(world, seed, generator)) {
                 add(d, world.getSaveHandler().getWorldDirectory().getCanonicalPath());
                 add(d, world.getWorldInfo().getTerrainType().getWorldTypeName());
                 add(d, world.getWorldInfo().getGeneratorOptions());
@@ -79,7 +83,20 @@ final class MapCacheIdentity {
 
     String tile(
             long seed, int dimension, String key, int x, int z, int width, int height, int step) {
-        String identity = viewIdentity(seed);
+        return tile(seed, dimension, key, x, z, width, height, step, OverworldGenerator.ALPHA);
+    }
+
+    String tile(
+            long seed,
+            int dimension,
+            String key,
+            int x,
+            int z,
+            int width,
+            int height,
+            int step,
+            String generator) {
+        String identity = viewIdentity(seed, generator);
         if (identity == null) return null;
         try {
             MessageDigest d = MessageDigest.getInstance("SHA-256");
@@ -89,15 +106,16 @@ final class MapCacheIdentity {
                     dimension + ":" + key + ":" + x + ":" + z + ":" + width + ":" + height + ":"
                             + step);
             WorldServer world = DimensionManager.getWorld(dimension);
-            boolean live = world != null && world.getSeed() == seed;
+            boolean live =
+                    world != null
+                            && world.getSeed() == seed
+                            && (dimension != 0
+                                    || OverworldGenerator.matches(world, seed, generator));
             for (int row = 0; row < height; row++)
                 for (int col = 0; col < width; col++) {
                     int offset = dimension == 0 && step == 4 ? 2 : 0;
                     int sx = x + col * step + offset, sz = z + row * step + offset;
-                    int biome =
-                            live && world.blockExists(sx, 0, sz)
-                                    ? world.getBiomeGenForCoords(sx, sz).biomeID
-                                    : -1;
+                    int biome = live ? StoredBiomeAccess.at(world, sx, sz) : -1;
                     d.update((byte) (biome >>> 24));
                     d.update((byte) (biome >>> 16));
                     d.update((byte) (biome >>> 8));

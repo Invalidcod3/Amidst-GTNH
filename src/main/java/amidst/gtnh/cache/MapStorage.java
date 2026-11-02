@@ -5,8 +5,12 @@ import amidst.logging.AmidstLogger;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 import java.util.zip.CRC32;
 
 /** Disposable map data only. Corrupt or unwritable caches always fall back to the worker. */
@@ -18,11 +22,58 @@ public final class MapStorage {
     private static final int HEADER_BYTES = 16;
     private static final int MAX_SAMPLES = 65_536;
     private static final int TRIM_INTERVAL = 32;
+    private static final Pattern CACHE_FILE = Pattern.compile("[0-9a-f]{64}\\.bin");
+    private static final ThreadPoolExecutor WRITER = createWriter();
     private final Path directory;
-    private int writes;
+    private final Executor writer;
+    private final AtomicInteger writes = new AtomicInteger();
+    private final Map<String, int[]> pendingWrites = new ConcurrentHashMap<>();
 
     public MapStorage(Path directory) {
+        this(directory, WRITER);
+    }
+
+    MapStorage(Path directory, Executor writer) {
         this.directory = directory;
+        this.writer = writer;
+    }
+
+    private static ThreadPoolExecutor createWriter() {
+        ThreadPoolExecutor executor =
+                new ThreadPoolExecutor(
+                        1,
+                        1,
+                        15,
+                        TimeUnit.SECONDS,
+                        new ArrayBlockingQueue<>(64),
+                        task -> {
+                            Thread thread = new Thread(task, "Amidst map cache writer");
+                            thread.setDaemon(true);
+                            thread.setPriority(Thread.NORM_PRIORITY - 1);
+                            return thread;
+                        },
+                        new ThreadPoolExecutor.AbortPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
+    }
+
+    /** Cache persistence is optional. Never run disk work on a caller when the queue is full. */
+    public synchronized void writeAsync(String key, int[] data) {
+        if (!enabled || key == null || data.length < 1 || data.length > MAX_SAMPLES) return;
+        int[] snapshot = data.clone();
+        pendingWrites.put(key, snapshot);
+        try {
+            writer.execute(
+                    () -> {
+                        try {
+                            write(key, snapshot);
+                        } finally {
+                            pendingWrites.remove(key, snapshot);
+                        }
+                    });
+        } catch (RejectedExecutionException full) {
+            pendingWrites.remove(key, snapshot);
+        }
     }
 
     public static Path root() {
@@ -43,8 +94,10 @@ public final class MapStorage {
         }
     }
 
-    public synchronized int[] read(String key, int size) {
+    public int[] read(String key, int size) {
         if (!enabled || key == null || size < 1 || size > MAX_SAMPLES) return null;
+        int[] pending = pendingWrites.get(key);
+        if (pending != null && pending.length == size) return pending.clone();
         Path path = directory.resolve(hash(key) + ".bin");
         try {
             if (Files.size(path) != HEADER_BYTES + size * 4L) return null;
@@ -65,7 +118,7 @@ public final class MapStorage {
         }
     }
 
-    public synchronized void write(String key, int[] data) {
+    public void write(String key, int[] data) {
         if (!enabled || key == null || data.length < 1 || data.length > MAX_SAMPLES) return;
         Path temporary = null;
         try {
@@ -82,7 +135,7 @@ public final class MapStorage {
                 for (int v : data) out.writeInt(v);
             }
             move(temporary, directory.resolve(hash(key) + ".bin"));
-            if (++writes % TRIM_INTERVAL == 1) trim();
+            if (writes.incrementAndGet() % TRIM_INTERVAL == 1) trim(MAX_BYTES);
         } catch (IOException | RuntimeException e) {
             AmidstLogger.warn("Map cache write failed: " + e.getMessage());
         } finally {
@@ -110,30 +163,42 @@ public final class MapStorage {
         crc.update(v);
     }
 
-    private void trim() throws IOException {
-        List<Path> files;
-        try (var paths = Files.list(directory)) {
-            files =
-                    paths.filter(p -> p.getFileName().toString().matches("[0-9a-f]{64}\\.bin"))
-                            .toList();
-        }
-        var sorted = new ArrayList<>(files);
-        sorted.sort(
-                Comparator.comparingLong(
-                        p -> {
-                            try {
-                                return Files.getLastModifiedTime(p).toMillis();
-                            } catch (IOException e) {
-                                return 0L;
-                            }
-                        }));
+    private record CacheEntry(Path path, long modified, long size) {}
+
+    void trim(long maxBytes) throws IOException {
+        List<CacheEntry> entries = new ArrayList<>();
         long bytes = 0;
-        for (Path p : sorted) bytes += Files.size(p);
-        for (Path p : sorted) {
-            if (bytes <= MAX_BYTES) break;
-            long size = Files.size(p);
-            Files.deleteIfExists(p);
-            bytes -= size;
+        try (var paths = Files.list(directory)) {
+            for (Iterator<Path> iterator = paths.iterator(); iterator.hasNext(); ) {
+                Path path = iterator.next();
+                if (!CACHE_FILE.matcher(path.getFileName().toString()).matches()) continue;
+                try {
+                    // Read once per file. Sorting must never repeatedly ask Windows for metadata.
+                    BasicFileAttributes attributes =
+                            Files.readAttributes(
+                                    path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                    if (!attributes.isRegularFile()) continue;
+                    entries.add(
+                            new CacheEntry(
+                                    path,
+                                    attributes.lastModifiedTime().toMillis(),
+                                    attributes.size()));
+                    bytes += attributes.size();
+                } catch (IOException ignored) {
+                    /* Another instance may have evicted it. */
+                }
+            }
+        }
+        if (bytes <= maxBytes) return;
+        entries.sort(Comparator.comparingLong(CacheEntry::modified));
+        for (CacheEntry entry : entries) {
+            if (bytes <= maxBytes) break;
+            try {
+                Files.deleteIfExists(entry.path());
+                bytes -= entry.size();
+            } catch (IOException ignored) {
+                /* A busy cache entry is disposable later. */
+            }
         }
     }
 }

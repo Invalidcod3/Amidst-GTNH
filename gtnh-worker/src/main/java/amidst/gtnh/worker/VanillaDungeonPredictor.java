@@ -28,6 +28,7 @@ final class VanillaDungeonPredictor {
 
     private final Field generateUndergroundLakes;
     private final Field generateUndergroundLavaLakes;
+    private Rwg2SurfaceBiomeSampler smoothSampler;
     private long caveSeed = Long.MIN_VALUE;
     private SurfaceBiomeSamplers.SeedOnlyWorld caveWorld;
     private MapGenBase caveGenerator;
@@ -40,9 +41,10 @@ final class VanillaDungeonPredictor {
                 }
             };
 
-    VanillaDungeonPredictor() {
+    VanillaDungeonPredictor() { this("rwg.config.ConfigRWG"); }
+    VanillaDungeonPredictor(String configClass) {
         try {
-            Class<?> config = Class.forName("rwg.config.ConfigRWG");
+            Class<?> config = Class.forName(configClass);
             generateUndergroundLakes = config.getField("generateUndergroundLakes");
             generateUndergroundLavaLakes =
                     config.getField("generateUndergroundLavaLakes");
@@ -59,27 +61,51 @@ final class VanillaDungeonPredictor {
             int height,
             SurfaceBiomeSampler sampler,
             List<RoguelikeDungeonPredictor.StructureDescriptor> rwgStructures) {
-        prepareCaveContext(seed);
-        long maxX = (long) minX + width;
-        long maxZ = (long) minZ + height;
-        int minChunkX = floorDiv((long) minX - 23L, 16);
-        int maxChunkX = floorDiv(maxX - 1L - 8L, 16);
-        int minChunkZ = floorDiv((long) minZ - 23L, 16);
-        int maxChunkZ = floorDiv(maxZ - 1L - 8L, 16);
-        java.util.ArrayList<RoguelikeDungeonPredictor.StructureDescriptor> result =
-                new java.util.ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
+        Job job = begin(seed, minX, minZ, width, height, sampler, rwgStructures);
+        job.advance(Long.MAX_VALUE);
+        return job.result;
+    }
 
-        for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+    Job begin(long seed, int x, int z, int width, int height, SurfaceBiomeSampler sampler,
+            List<RoguelikeDungeonPredictor.StructureDescriptor> structures) {
+        return new Job(seed,x,z,width,height,sampler,structures);
+    }
+
+    final class Job {
+        final long seed, maxX, maxZ;
+        final int minX, minZ, firstChunkX, lastChunkX, lastChunkZ;
+        final SurfaceBiomeSampler sampler;
+        final List<RoguelikeDungeonPredictor.StructureDescriptor> rwgStructures;
+        final List<RoguelikeDungeonPredictor.StructureDescriptor> result = new java.util.ArrayList<>();
+        int chunkX, chunkZ;
+        Job(long seed, int minX, int minZ, int width, int height, SurfaceBiomeSampler sampler,
+                List<RoguelikeDungeonPredictor.StructureDescriptor> structures) {
+            this.seed=seed; this.minX=minX; this.minZ=minZ; this.sampler=sampler; rwgStructures=structures;
+            maxX=(long)minX+width; maxZ=(long)minZ+height;
+            firstChunkX=chunkX=floorDiv((long)minX-23L,16);
+            chunkZ=floorDiv((long)minZ-23L,16);
+            lastChunkX=floorDiv(maxX-1L-8L,16); lastChunkZ=floorDiv(maxZ-1L-8L,16);
+        }
+        boolean advance(long deadline) {
+            prepareCaveContext(seed, sampler);
+            while (chunkZ <= lastChunkZ) {
+                if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
+                if (System.nanoTime() >= deadline) return false;
+                predictChunk();
+                if (++chunkX > lastChunkX) { chunkX=firstChunkX; chunkZ++; }
+            }
+            return true;
+        }
+        private void predictChunk() {
                 if (nearMapStructure(chunkX, chunkZ, rwgStructures)) {
-                    continue;
+                    return;
                 }
                 Random random = rwgPopulationRandom(seed, chunkX, chunkZ);
                 if (getBoolean(generateUndergroundLakes) && random.nextInt(10) == 0) {
-                    continue;
+                    return;
                 }
                 if (getBoolean(generateUndergroundLavaLakes) && random.nextInt(18) == 0) {
-                    continue;
+                    return;
                 }
 
                 for (int attempt = 0; attempt < 8; attempt++) {
@@ -102,9 +128,7 @@ final class VanillaDungeonPredictor {
                         break;
                     }
                 }
-            }
         }
-        return result;
     }
 
     private boolean isPossibleDungeon(
@@ -155,15 +179,25 @@ final class VanillaDungeonPredictor {
         if (cached != null) {
             return cached;
         }
-        Block[] blocks = new Block[16 * 16 * 256];
-        Arrays.fill(blocks, Blocks.stone);
-        caveGenerator.func_151539_a(null, caveWorld, chunkX, chunkZ, blocks);
+        Block[] blocks;
+        if (smoothSampler != null) blocks = smoothSampler.dungeonTerrain(chunkX, chunkZ);
+        else {
+            blocks = new Block[16 * 16 * 256];
+            Arrays.fill(blocks, Blocks.stone);
+            caveGenerator.func_151539_a(null, caveWorld, chunkX, chunkZ, blocks);
+        }
         CaveMask created = new CaveMask(blocks);
         caveCache.put(Long.valueOf(key), created);
         return created;
     }
 
-    private void prepareCaveContext(long seed) {
+    private void prepareCaveContext(long seed, SurfaceBiomeSampler sampler) {
+        if (sampler instanceof Rwg2SurfaceBiomeSampler) {
+            if (smoothSampler != sampler || caveSeed != seed) caveCache.clear();
+            smoothSampler = (Rwg2SurfaceBiomeSampler) sampler; caveSeed=seed; caveWorld=null;
+            return;
+        }
+        smoothSampler = null;
         if (caveWorld != null && caveSeed == seed) {
             return;
         }

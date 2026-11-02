@@ -37,9 +37,9 @@ public class BiomeDataLoader extends FragmentLoader {
 		this.spaceBiomeDataOracles = spaceBiomeDataOracles;
 	}
 
-	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
-	@Override
-	public void load(Dimension dimension, Fragment fragment) {
+    @CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
+    @Override
+    public void load(Dimension dimension, Fragment fragment) {
 		doLoad(dimension, fragment);
 	}
 

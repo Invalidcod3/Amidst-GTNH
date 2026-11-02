@@ -3,6 +3,7 @@ package amidst.gtnh.worker;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import java.awt.Color;
 import java.nio.file.Files;
@@ -81,7 +82,7 @@ public class GtnhBiomeColorPaletteTest {
 
 		Map<Integer, BiomeColor> colors = GtnhBiomeColorPalette.create(info, null);
 
-		assertEquals("#70B44E", hex(colors.get(40)));
+		assertEquals("#213B67", hex(colors.get(40)));
 		assertEquals("#377C4D", hex(colors.get(41)));
 		assertEquals("#DFBC75", hex(colors.get(42)));
 	}
@@ -142,14 +143,14 @@ public class GtnhBiomeColorPaletteTest {
 	}
 
 	@Test
-	public void oceanTagAndNameNeverTurnABiomeBlue() {
+	public void recognizedOceanUsesWaterColorWithOrWithoutTags() {
 		GtnhBiomeDescriptor taggedOcean = biome(42, "Deep Ocean", 0, "OCEAN");
 		GtnhBiomeDescriptor untagged = biome(42, "Deep Ocean", 0);
 
 		assertEquals(
 				hex(GtnhBiomeColorPalette.defaultColor(untagged)),
 				hex(GtnhBiomeColorPalette.defaultColor(taggedOcean)));
-		assertFalse(isVisiblyBlue(GtnhBiomeColorPalette.defaultColor(taggedOcean)));
+		assertTrue(isVisiblyBlue(GtnhBiomeColorPalette.defaultColor(taggedOcean)));
 	}
 
 	@Test
@@ -163,7 +164,7 @@ public class GtnhBiomeColorPaletteTest {
 	}
 
 	@Test
-	public void oceanBiomesUseTheirSecondaryLandTags() {
+	public void rwgOceansKeepWaterColorsDespiteTheirSecondaryLandTags() {
 		assertSameDefaultColor(
 				biome(71, "Cold Ocean", 0, "OCEAN", "BEACH", "FOREST"),
 				biome(71, "Cold Ocean", 0, "FOREST"));
@@ -176,6 +177,22 @@ public class GtnhBiomeColorPaletteTest {
 		assertSameDefaultColor(
 				biome(74, "Ice Ocean", 0, "OCEAN", "BEACH", "SNOWY"),
 				biome(74, "Ice Ocean", 0, "SNOWY"));
+		for (String name : List.of("Cold Ocean", "Hot Ocean", "Wet Ocean", "Ice Ocean", "Temperate Ocean", "Ocean Oasis")) {
+			assertTrue(name, isVisiblyBlue(GtnhBiomeColorPalette.defaultColor(biome(300, name, 0, "OCEAN", "BEACH", "FOREST", "SANDY"))));
+		}
+	}
+
+	@Test
+	public void importedForestsAndWetlandsOverrideMisleadingWaterTagsAcrossIds() {
+		for (int id : new int[] {80, 300, 65534, 1048656}) {
+			assertEquals("#4F7D5B", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Mangrove", 0x6EA559, "WET", "LUSH", "OCEAN", "RIVER", "FOREST"))));
+			assertEquals("#5F826D", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Marsh", 0, "OCEAN", "RIVER", "SWAMP"))));
+			assertEquals("#D89AAF", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Cherry Blossom Grove", 0, "LUSH", "MAGICAL", "FOREST"))));
+			assertEquals("#7F9F45", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Bamboo Forest", 0, "DENSE", "JUNGLE", "LUSH", "FOREST"))));
+			assertEquals("#399561", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Tropics", 0, "WET", "JUNGLE", "OCEAN", "RIVER", "BEACH"))));
+			assertEquals("#6D783F", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Jungle (RWG)", 0, "JUNGLE", "FOREST"))));
+			assertEquals("#7D7945", hex(GtnhBiomeColorPalette.defaultColor(biome(id, "Jungle Mesa", 0, "JUNGLE", "MESA", "SANDY"))));
+		}
 	}
 
 	@Test
@@ -273,7 +290,15 @@ public class GtnhBiomeColorPaletteTest {
 		}
 	}
 
-	private static GtnhWorkerInfo info(List<GtnhBiomeDescriptor> biomes) {
+    @Test public void coldForestsAndDryGreensRemainDistinct() {
+        assertEquals("#718478", hex(GtnhBiomeColorPalette.defaultColor(biome(302,"Jungle Canyon",0))));
+        assertEquals("#52A46B", hex(GtnhBiomeColorPalette.defaultColor(biome(303,"Oasis",0))));
+        assertEquals("#B8AF61", hex(GtnhBiomeColorPalette.defaultColor(biome(304,"Lush Desert",0))));
+        assertEquals("#31554A", hex(GtnhBiomeColorPalette.defaultColor(biome(305,"Cold Forest",0))));
+        assertEquals("#E4ECEA", hex(GtnhBiomeColorPalette.defaultColor(biome(306,"Snow Desert",0))));
+    }
+
+    private static GtnhWorkerInfo info(List<GtnhBiomeDescriptor> biomes) {
 		return new GtnhWorkerInfo(
 				GtnhBiomeSource.PROTOCOL_VERSION,
 				123L,

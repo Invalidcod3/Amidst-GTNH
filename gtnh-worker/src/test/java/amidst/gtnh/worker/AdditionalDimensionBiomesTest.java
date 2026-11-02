@@ -102,15 +102,15 @@ public class AdditionalDimensionBiomesTest {
     }
 
     @Test
-    public void everyRawIdFitsTheFragmentStorageWithoutScopeCollisions() {
+    public void extendedIdsHaveDistinctAdditionalDimensionScopes() {
         Set<Integer> ids = new HashSet<>();
         for (String key : AdditionalDimensionBiomes.keys())
-            for (int raw = 0; raw < 256; raw++) {
+            for (int raw : new int[] {0, 255, 256, 300, 329, 32768, 65534, 65535}) {
                 int id = AdditionalDimensionBiomes.displayId(key, raw);
-                assertTrue(id >= 8192 && id <= Short.MAX_VALUE);
+                assertTrue(id >= DisplayBiomeIds.ADDITIONAL_BASE);
                 assertTrue(ids.add(id));
             }
-        assertEquals(24 * 256, ids.size());
+        assertEquals(24 * 8, ids.size());
         assertFalse(AdditionalDimensionBiomes.supports("Overworld"));
         assertFalse(AdditionalDimensionBiomes.supports(null));
         assertEquals(

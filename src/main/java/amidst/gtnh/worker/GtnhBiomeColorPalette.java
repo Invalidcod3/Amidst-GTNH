@@ -41,6 +41,7 @@ public final class GtnhBiomeColorPalette {
 			case "shield" -> color(0x214E3A, 0);
 			case "lush swamp" -> color(0x39998B, 0);
 			case "bayou" -> color(0x68B02D, 0);
+			case "tainted land" -> color(0x30203F, 0);
 			default -> null;
 		};
 		if (sharedColor != null) {
@@ -79,6 +80,13 @@ public final class GtnhBiomeColorPalette {
 				return color(0xB39857, variation);
 			}
 			return color(0x737B83, variation);
+		}
+		// RWG oceans also carry land tags (FOREST/SANDY/BEACH), while BOP's
+		// Mangrove/Marsh/Tropics carry RIVER. Resolve verified identities first;
+		// an OCEAN tag alone still must not turn an arbitrary land biome blue.
+		BiomeColor knownOverworldColor = knownOverworldColor(name);
+		if (knownOverworldColor != null) {
+			return knownOverworldColor;
 		}
 		if (biome.hasTag("RIVER")) {
 			return riverColor(biome, variation);
@@ -136,6 +144,40 @@ public final class GtnhBiomeColorPalette {
 		float brightness = clamp(0.72f - Math.max(0.0f, biome.rootHeight()) * 0.06f, 0.56f, 0.78f);
 		int rgb = Color.HSBtoRGB(hue, saturation, brightness);
 		return color(rgb, variation);
+	}
+
+	private static BiomeColor knownOverworldColor(String name) {
+		return switch (name) {
+			case "ocean", "ocean oil field" -> color(0x365D8D, 0);
+			case "deep ocean", "deepocean" -> color(0x213B67, 0);
+			case "ice ocean", "frozen ocean", "frozenocean" -> color(0x9EC9DB, 0);
+			case "cold ocean" -> color(0x416D9B, 0);
+			case "temperate ocean" -> color(0x3F82AA, 0);
+			case "hot ocean", "warm ocean" -> color(0x4299B0, 0);
+			case "wet ocean" -> color(0x378F99, 0);
+			case "ocean oasis" -> color(0x48A5A3, 0);
+			case "coral reef" -> color(0x3C9C9E, 0);
+			case "kelp forest" -> color(0x327E87, 0);
+			case "mangrove", "mangrove swamp" -> color(0x4F7D5B, 0);
+			case "marsh" -> color(0x5F826D, 0);
+			case "tropics" -> color(0x399561, 0);
+			case "jungle", "jungle (rwg)" -> color(0x6D783F, 0);
+			case "jungle mesa" -> color(0x7D7945, 0);
+			case "jungle canyon" -> color(0x718478, 0);
+			case "oasis" -> color(0x52A46B, 0);
+			case "lush desert" -> color(0xB8AF61, 0);
+			// Vanilla taiga's blue-green family, with separate forest and open-ground values.
+			case "cold forest", "cold taiga", "cold taiga m" -> color(0x31554A, 0);
+			case "cold taiga hills" -> color(0x243F36, 0);
+			case "taiga", "taiga m" -> color(0x0B6659, 0);
+			case "taigahills", "taiga hills" -> color(0x165C50, 0);
+			case "cold plains", "tundra" -> color(0x8DA69D, 0);
+			case "snow forest", "snowy coniferous forest" -> color(0x83A69B, 0);
+			case "snow desert" -> color(0xE4ECEA, 0);
+			case "cherry blossom grove", "cherry grove" -> color(0xD89AAF, 0);
+			case "bamboo forest", "bamboo jungle" -> color(0x7F9F45, 0);
+			default -> null;
+		};
 	}
 
 	/**
@@ -213,7 +255,7 @@ public final class GtnhBiomeColorPalette {
 			return color(0x3F6046, variation);
 		}
 		if (name.contains("phantasmagoric inferno")) {
-			return color(0xC6532D, variation);
+			return color(0x9D2038, 0);
 		}
 		if ("hell".equals(name)) {
 			return color(0x6B2D2D, variation);

@@ -145,12 +145,10 @@ final class AccuracyValidation {
                 result.add("BIOME", x, z, "", "", "UNVERIFIED", "Chunk is not loaded");
                 return;
             }
-            // getBiomeGenForCoords resolves unknown (255) entries using today's manager.
+            // getBiomeGenForCoords resolves unknown (255 / 65535) entries using today's manager.
             // That would turn missing saved evidence into a misleading comparison.
-            int raw =
-                    world.getChunkFromBlockCoords(x, z).getBiomeArray()[((z & 15) << 4) | (x & 15)]
-                            & 255;
-            if (raw == 255) {
+            int raw = StoredBiomeAccess.at(world, x, z);
+            if (raw < 0) {
                 result.add(
                         "BIOME", x, z, "", "", "UNVERIFIED", "Loaded chunk has no stored biome ID");
                 return;

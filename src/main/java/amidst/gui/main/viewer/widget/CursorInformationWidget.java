@@ -58,18 +58,19 @@ public class CursorInformationWidget extends TextWidget {
 		if (mousePosition != null) {
 			CoordinatesInWorld coordinates = translator.screenToWorld(mousePosition);
 			String biomeName = getBiomeNameAt(coordinates);
+            String sampleSize = amidst.i18n.I18n.text(" (4x4 blocks)");
 			if (exactLookup != null && dimensionSetting.get() == Dimension.OVERWORLD) {
 				try {
 					String exact = exactLookup.poll(Dimension.OVERWORLD,
 							Math.toIntExact(coordinates.getX()), Math.toIntExact(coordinates.getY()));
 					if (exact != null) {
 						return Arrays.asList(amidst.i18n.I18n.text("At block: ") + exact + " " + coordinates,
-								amidst.i18n.I18n.text("Map sample: ") + biomeName + amidst.i18n.I18n.text(" (4x4 blocks)"));
+								amidst.i18n.I18n.text("Map sample: ") + biomeName + sampleSize);
 					}
 				} catch (ArithmeticException outsideWorld) {
 					// Panning past the integer coordinate range cannot be queried.
 				}
-				return Arrays.asList(amidst.i18n.I18n.text("Map sample: ") + biomeName + " " + coordinates + amidst.i18n.I18n.text(" (4x4 blocks)"));
+				return Arrays.asList(amidst.i18n.I18n.text("Map sample: ") + biomeName + " " + coordinates + sampleSize);
 			}
 			return Arrays.asList(biomeName + " " + coordinates.toString());
 		} else {
@@ -94,11 +95,11 @@ public class CursorInformationWidget extends TextWidget {
 	private String getLoadedBiomeNameAt(CoordinatesInWorld coordinates) {
 		Fragment fragment = graph.getFragmentAt(coordinates);
 		if (fragment != null
-				&& fragment.getState().equals(Fragment.State.LOADED)
+				&& fragment.hasDisplayData(dimensionSetting.get())
 				&& dimensionSetting.get().equals(fragment.getLoadedDimension())) {
 			long x = coordinates.getXRelativeToFragmentAs(Resolution.QUARTER);
 			long y = coordinates.getYRelativeToFragmentAs(Resolution.QUARTER);
-			short biome = fragment.getBiomeDataAt((int) x, (int) y);
+			int biome = fragment.getDisplayBiomeDataAt((int) x, (int) y);
 			Biome b = biomeList.getByIdOrNull(biome);
 			if (b != null) {
 				return b.getName();

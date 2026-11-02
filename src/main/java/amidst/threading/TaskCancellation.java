@@ -32,7 +32,7 @@ public final class TaskCancellation {
 
 	public static void check() {
 		BooleanSupplier cancelled = CURRENT.get();
-		if (cancelled != null && (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted())) {
+		if (Thread.currentThread().isInterrupted() || (cancelled != null && cancelled.getAsBoolean())) {
 			throw new CancellationException("Task is no longer needed by the current view");
 		}
 	}

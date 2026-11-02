@@ -41,11 +41,11 @@ public class WorldFilterJson_Biome {
 		return new WorldFilter_Biome(distance, createValidBiomeIndexes());
 	}
 
-	private Set<Short> createValidBiomeIndexes() {
-		Set<Short> result = new HashSet<>();
+	private Set<Integer> createValidBiomeIndexes() {
+		Set<Integer> result = new HashSet<>();
 		for (String name : biomes) {
 			try {
-				result.add((short) biomeList.getBiomeFromName(name).getId());
+				result.add(biomeList.getBiomeFromName(name).getId());
 			} catch (UnknownBiomeNameException e) {
 				AmidstLogger.error(e);
 				AmidstMessageBox.displayError("Error", e);

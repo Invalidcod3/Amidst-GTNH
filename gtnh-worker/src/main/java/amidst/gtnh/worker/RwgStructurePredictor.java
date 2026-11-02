@@ -14,6 +14,9 @@ import java.util.Random;
 final class RwgStructurePredictor {
 
     private static final int VILLAGE_SALT = 10387312;
+    private final String configClass;
+    RwgStructurePredictor() { this("rwg.config.ConfigRWG"); }
+    RwgStructurePredictor(String configClass) { this.configClass = configClass; }
 
     List<RoguelikeDungeonPredictor.StructureDescriptor> predict(
             long seed,
@@ -28,18 +31,23 @@ final class RwgStructurePredictor {
     List<RoguelikeDungeonPredictor.StructureDescriptor> predict(
             long seed, int minX, int minZ, int width, int height,
             SurfaceBiomeSampler sampler, boolean independentBiomes) {
+        return predict(seed, minX, minZ, width, height, sampler, independentBiomes, StructureSelection.ALL);
+    }
+
+    List<RoguelikeDungeonPredictor.StructureDescriptor> predict(long seed, int minX, int minZ, int width, int height,
+            SurfaceBiomeSampler sampler, boolean independentBiomes, StructureSelection selection) {
         long maxX = (long) minX + width;
         long maxZ = (long) minZ + height;
         List<RoguelikeDungeonPredictor.StructureDescriptor> result =
                 new ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
-        if (getRwgFlag("generateVillages")) {
+        if (selection.wants("VILLAGE") && getRwgFlag("generateVillages")) {
             addVillages(seed, minX, minZ, maxX, maxZ, sampler,
                     VillageGenerationRules.read(sampler.getVillageGenerator()), independentBiomes, result);
         }
-        if (getRwgFlag("generateMineshafts")) {
+        if (selection.wants("MINESHAFT") && getRwgFlag("generateMineshafts")) {
             addMineshafts(seed, minX, minZ, maxX, maxZ, result);
         }
-        addStrongholds(seed, minX, minZ, maxX, maxZ, result);
+        if (selection.wants("STRONGHOLD")) addStrongholds(seed, minX, minZ, maxX, maxZ, result);
         return result;
     }
 
@@ -160,9 +168,9 @@ final class RwgStructurePredictor {
         return (int) Math.floorDiv(value, (long) divisor);
     }
 
-    private static boolean getRwgFlag(String fieldName) {
+    private boolean getRwgFlag(String fieldName) {
         try {
-            Class<?> config = Class.forName("rwg.config.ConfigRWG");
+            Class<?> config = Class.forName(configClass);
             Field field = config.getField(fieldName);
             return field.getBoolean(null);
         } catch (ReflectiveOperationException e) {

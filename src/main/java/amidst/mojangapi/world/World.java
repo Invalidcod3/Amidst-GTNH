@@ -283,6 +283,10 @@ public class World {
     }
     public String getMapCacheIdentity() throws MinecraftInterfaceException { return gtnhRoguelikeDungeonProducers.cacheIdentity(); }
     public void clearCachedPredictions() { gtnhRoguelikeDungeonProducers.clearCachedPredictions(); }
+
+    public void invalidateOverworldPredictions(java.util.Set<amidst.mojangapi.world.coordinates.CoordinatesInWorld> affected) {
+        gtnhRoguelikeDungeonProducers.invalidateOverworldPredictions(affected);
+    }
     public void invalidateSpawn() { gtnhRoguelikeDungeonProducers.invalidateSpawn(); }
 	public int getGtnhDimensionId(Dimension dimension) {
 		return gtnhRoguelikeDungeonProducers.getDimensionId(dimension);

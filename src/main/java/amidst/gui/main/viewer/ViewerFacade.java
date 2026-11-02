@@ -125,7 +125,8 @@ public class ViewerFacade {
         this.prospecting = new amidst.gtnh.prospecting.ProspectingOverlay(world, settings, translator, zoom);
         this.prospecting.setOnDoubleClick(journeyMapAutoImport::add);
 		this.fragmentQueueProcessor = fragmentManager.createQueueProcessor(
-				layerManager, settings.dimension, world.supportsGtnhWorldStateUpdates());
+				layerManager, settings.dimension, world.supportsGtnhWorldStateUpdates(),
+                world.getWorldOptions().getWorldType() == amidst.mojangapi.world.WorldType.RWG2_SMOOTH);
 		this.layerReloader = layerManager.createLayerReloader(world);
 		this.progressEntryHolder = new AtomicReference<Entry<ProgressEntryType, Integer>>();
 
@@ -222,12 +223,11 @@ public class ViewerFacade {
             javax.swing.SwingUtilities.invokeLater(() -> { if(!disposed){prospecting.refresh(); refreshViewIdentity();} });
 			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
 			fragmentQueueProcessor.requestBiomeReloadAllUsed();
-		} else if (state.chunkXs().length != 0 && dimensionSetting.get()==Dimension.OVERWORLD) {
-            world.clearCachedPredictions();
-            for (int layer=amidst.fragment.layer.LayerIds.GTNH_ROGUELIKE_DESERT;
-                    layer<amidst.fragment.layer.LayerIds.GTNH_WORLD_SPAWN;layer++) layerManager.invalidateLayer(layer);
+		} else if (state.chunkXs().length != 0) {
+            var affected = amidst.fragment.ChangedChunkTiles.fromChunks(state.chunkXs(), state.chunkZs());
+            world.invalidateOverworldPredictions(affected);
 			if (cursorBiomeLookup != null) cursorBiomeLookup.invalidate();
-			fragmentQueueProcessor.requestBiomeReloadForChunks(state.chunkXs(), state.chunkZs());
+			fragmentQueueProcessor.requestOverworldReload(affected);
 		}
 	}
 

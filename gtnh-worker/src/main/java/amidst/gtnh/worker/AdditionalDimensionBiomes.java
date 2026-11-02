@@ -15,7 +15,6 @@ import java.util.function.Supplier;
 /** Biomes for the additional prospecting worlds, without creating worlds or chunks. */
 final class AdditionalDimensionBiomes implements AutoCloseable {
     // Stable, dimension-local display IDs, separate from the original space scopes.
-    private static final int DISPLAY_BASE = 8192;
     private static final String SPACE = "galaxyspace.core.world.GSBiomeGenBase";
     private static final String EVERGLADES_MANAGER =
             "toxiceverglades.world.WorldChunkManagerCustom";
@@ -89,10 +88,10 @@ final class AdditionalDimensionBiomes implements AutoCloseable {
     }
 
     static int displayId(String key, int biomeId) {
-        if (biomeId < 0 || biomeId > 255)
-            throw new IllegalArgumentException("Invalid biome ID " + biomeId);
+        DisplayBiomeIds.raw(biomeId);
         for (int i = 0; i < KEYS.length; i++)
-            if (KEYS[i].equals(key)) return DISPLAY_BASE + i * 256 + biomeId;
+            if (KEYS[i].equals(key))
+                return DisplayBiomeIds.scoped(DisplayBiomeIds.ADDITIONAL_BASE, i, biomeId);
         throw new IllegalArgumentException("Unknown additional biome dimension " + key);
     }
 

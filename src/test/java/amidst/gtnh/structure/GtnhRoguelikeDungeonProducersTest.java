@@ -3,477 +3,652 @@ package amidst.gtnh.structure;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.util.List;
-
-import org.junit.Test;
-
 import amidst.fragment.Fragment;
 import amidst.gtnh.worker.GtnhBiomeDescriptor;
 import amidst.gtnh.worker.GtnhBiomeSource;
 import amidst.gtnh.worker.GtnhMinecraftInterface;
 import amidst.gtnh.worker.GtnhWorkerInfo;
-import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 import amidst.mojangapi.world.Dimension;
+import amidst.mojangapi.world.coordinates.CoordinatesInWorld;
 import amidst.mojangapi.world.icon.WorldIcon;
+
+import org.junit.Test;
+
+import java.util.List;
 
 public class GtnhRoguelikeDungeonProducersTest {
 
-    @Test public void endAsteroidIconsPreserveCenterHeight() throws Exception {
+    @Test
+    public void selectedQueriesShareResultsButDoNotHideNewlyEnabledTypesOrExports()
+            throws Exception {
+        var requested = new java.util.ArrayList<java.util.Set<String>>();
+        RecordingSource source =
+                new RecordingSource() {
+                    @Override
+                    public List<GtnhStructureDescriptor> sampleSelectedStructures(
+                            long seed,
+                            int dimension,
+                            String key,
+                            int x,
+                            int z,
+                            int width,
+                            int height,
+                            String group,
+                            java.util.Set<String> types) {
+                        requested.add(types);
+                        return List.of(
+                                new GtnhStructureDescriptor(
+                                        "RWG2_TWILIGHT_PORTAL",
+                                        "RWG2_RIVER_CHAMBER",
+                                        8,
+                                        8,
+                                        "TERRAIN_CANDIDATE",
+                                        64));
+                    }
+                };
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7);
+        var corner = CoordinatesInWorld.origin();
+        try (var scope = StructureQuerySelection.open(java.util.Set.of("VILLAGE", "MINESHAFT"))) {
+            producers.get(GtnhOverworldStructureType.VILLAGE).getAt(corner, null);
+            producers.get(GtnhOverworldStructureType.MINESHAFT).getAt(corner, null);
+            assertEquals(1, requested.size());
+            assertEquals(java.util.Set.of("VILLAGE", "MINESHAFT"), requested.get(0));
+        }
+        try (var scope = StructureQuerySelection.open(java.util.Set.of("RWG2_TWILIGHT_PORTAL"))) {
+            assertEquals(
+                    1,
+                    producers
+                            .get(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL)
+                            .getAt(corner, null)
+                            .size());
+            assertEquals(2, requested.size());
+            producers.invalidateOverworldPredictions(java.util.Set.of(corner));
+            producers.get(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL).getAt(corner, null);
+            assertEquals(3, requested.size());
+        }
+        producers.get(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL).getAt(corner, null);
+        assertEquals(4, requested.size());
+        org.junit.Assert.assertNull(
+                "Export/full query must not inherit map visibility", requested.get(3));
+    }
+
+    @Test
+    public void rwg2LandmarksKeepTypeHeightAndEvidenceInTheIcon() throws Exception {
+        RecordingSource source =
+                new RecordingSource() {
+                    @Override
+                    public List<GtnhStructureDescriptor> sampleStructures(
+                            long seed, int dimensionId, int x, int z, int width, int height) {
+                        return List.of(
+                                new GtnhStructureDescriptor(
+                                        "LOOTGAMES_DUNGEON",
+                                        "RWG2_LAVA_CAVE",
+                                        8,
+                                        8,
+                                        "TERRAIN_CANDIDATE",
+                                        39),
+                                new GtnhStructureDescriptor(
+                                        "RWG2_TWILIGHT_PORTAL",
+                                        "RWG2_RIVER_CHAMBER",
+                                        32,
+                                        32,
+                                        "RECORDED",
+                                        64));
+                    }
+                };
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7L);
+        var game =
+                producers
+                        .get(GtnhOverworldStructureType.RWG2_LAVA_CAVE_GAME)
+                        .getAt(CoordinatesInWorld.origin(), null)
+                        .get(0);
+        var portal =
+                producers
+                        .get(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL)
+                        .getAt(CoordinatesInWorld.origin(), null)
+                        .get(0);
+        assertEquals(Integer.valueOf(39), game.getHeight());
+        assertTrue(game.getName().contains("RWG2 Lava Cave"));
+        assertTrue(game.getName().contains("Terrain candidate"));
+        assertEquals(Integer.valueOf(64), portal.getHeight());
+        assertTrue(portal.getName().contains("Recorded"));
+    }
+
+    @Test
+    public void lootGamesLayersSeparateSourcesWithoutRepeatingWorkerQueries() throws Exception {
+        int[] queries = {0};
+        RecordingSource source =
+                new RecordingSource() {
+                    @Override
+                    public List<GtnhStructureDescriptor> sampleStructures(
+                            long seed, int dimensionId, int x, int z, int width, int height) {
+                        queries[0]++;
+                        return List.of(
+                                new GtnhStructureDescriptor(
+                                        "LOOTGAMES_DUNGEON", "", 8, 8, "POSSIBLE"),
+                                new GtnhStructureDescriptor(
+                                        "LOOTGAMES_DUNGEON",
+                                        "RWG2_LAVA_CAVE",
+                                        24,
+                                        24,
+                                        "TERRAIN_CANDIDATE",
+                                        39),
+                                new GtnhStructureDescriptor(
+                                        "LOOTGAMES_DUNGEON",
+                                        "RWG2_RIVER_CHAMBER",
+                                        40,
+                                        40,
+                                        "RECORDED",
+                                        66),
+                                new GtnhStructureDescriptor(
+                                        "RWG2_NETHER_PORTAL",
+                                        "RWG2_LAVA_CAVE",
+                                        56,
+                                        56,
+                                        "TERRAIN_CANDIDATE",
+                                        39));
+                    }
+                };
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7L);
+        var ordinary =
+                producers
+                        .get(GtnhOverworldStructureType.LOOTGAMES_DUNGEON)
+                        .getAt(CoordinatesInWorld.origin(), null);
+        var lava =
+                producers
+                        .get(GtnhOverworldStructureType.RWG2_LAVA_CAVE_GAME)
+                        .getAt(CoordinatesInWorld.origin(), null);
+        var river =
+                producers
+                        .get(GtnhOverworldStructureType.RWG2_RIVER_CHAMBER_GAME)
+                        .getAt(CoordinatesInWorld.origin(), null);
+        assertEquals(1, queries[0]);
+        assertEquals(1, ordinary.size());
+        assertEquals(1, lava.size());
+        assertEquals(1, river.size());
+        assertEquals(CoordinatesInWorld.from(8, 8), ordinary.get(0).getCoordinates());
+        assertEquals(CoordinatesInWorld.from(24, 24), lava.get(0).getCoordinates());
+        assertEquals(CoordinatesInWorld.from(40, 40), river.get(0).getCoordinates());
+        assertTrue(ordinary.get(0).getName().contains("Ordinary"));
+        assertEquals(Integer.valueOf(39), lava.get(0).getHeight());
+        assertEquals(Integer.valueOf(66), river.get(0).getHeight());
+        assertTrue(river.get(0).getName().contains("Recorded"));
+        org.junit.Assert.assertNotSame(ordinary.get(0).getImage(), lava.get(0).getImage());
+        org.junit.Assert.assertNotSame(lava.get(0).getImage(), river.get(0).getImage());
+    }
+
+    @Test
+    public void endAsteroidIconsPreserveCenterHeight() throws Exception {
         RecordingSource source = new RecordingSource();
         var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 42L);
-        var icons = producers.get(GtnhEndStructureType.END_PLATINUM_ASTEROID)
-                .getAt(CoordinatesInWorld.from(-512, 0), null);
+        var icons =
+                producers
+                        .get(GtnhEndStructureType.END_PLATINUM_ASTEROID)
+                        .getAt(CoordinatesInWorld.from(-512, 0), null);
         assertEquals(1, icons.size());
         assertEquals(Dimension.END, icons.get(0).getDimension());
         assertEquals(CoordinatesInWorld.from(-258, 364), icons.get(0).getCoordinates());
         assertEquals(Integer.valueOf(167), icons.get(0).getHeight());
     }
 
-	@Test
-	public void filtersTypesLabelsIconsAndSharesFragmentQuery() throws Exception {
-		RecordingSource source = new RecordingSource();
-		GtnhMinecraftInterface minecraftInterface = new GtnhMinecraftInterface(source);
-		GtnhRoguelikeDungeonProducers producers =
-				new GtnhRoguelikeDungeonProducers(minecraftInterface, 987654321L);
-		CoordinatesInWorld corner = CoordinatesInWorld.from(-512, 1024);
+    @Test
+    public void filtersTypesLabelsIconsAndSharesFragmentQuery() throws Exception {
+        RecordingSource source = new RecordingSource();
+        GtnhMinecraftInterface minecraftInterface = new GtnhMinecraftInterface(source);
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(minecraftInterface, 987654321L);
+        CoordinatesInWorld corner = CoordinatesInWorld.from(-512, 1024);
 
-		List<WorldIcon> desert = producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(corner, null);
-		List<WorldIcon> swamp = producers.get(GtnhRoguelikeDungeonType.SWAMP).getAt(corner, null);
-		List<WorldIcon> villages = producers.get(GtnhOverworldStructureType.VILLAGE).getAt(corner, null);
-		List<WorldIcon> lootGames =
-				producers.get(GtnhOverworldStructureType.LOOTGAMES_DUNGEON).getAt(corner, null);
-		List<WorldIcon> slimeIslands =
-				producers.get(GtnhOverworldStructureType.TINKERS_SLIME_ISLAND).getAt(corner, null);
-		List<WorldIcon> auraNodes =
-				producers.get(GtnhOverworldStructureType.THAUMCRAFT_AURA_NODE).getAt(corner, null);
-		List<WorldIcon> altars =
-				producers.get(GtnhOverworldStructureType.THAUMCRAFT_ELDRITCH_ALTAR).getAt(corner, null);
-		List<WorldIcon> meteorites =
-				producers.get(GtnhOverworldStructureType.AE2_METEORITE).getAt(corner, null);
+        List<WorldIcon> desert = producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(corner, null);
+        List<WorldIcon> swamp = producers.get(GtnhRoguelikeDungeonType.SWAMP).getAt(corner, null);
+        List<WorldIcon> villages =
+                producers.get(GtnhOverworldStructureType.VILLAGE).getAt(corner, null);
+        List<WorldIcon> lootGames =
+                producers.get(GtnhOverworldStructureType.LOOTGAMES_DUNGEON).getAt(corner, null);
+        List<WorldIcon> slimeIslands =
+                producers.get(GtnhOverworldStructureType.TINKERS_SLIME_ISLAND).getAt(corner, null);
+        List<WorldIcon> auraNodes =
+                producers.get(GtnhOverworldStructureType.THAUMCRAFT_AURA_NODE).getAt(corner, null);
+        List<WorldIcon> altars =
+                producers
+                        .get(GtnhOverworldStructureType.THAUMCRAFT_ELDRITCH_ALTAR)
+                        .getAt(corner, null);
+        List<WorldIcon> meteorites =
+                producers.get(GtnhOverworldStructureType.AE2_METEORITE).getAt(corner, null);
 
-		assertEquals(2, source.queryCount);
+        assertEquals(2, source.queryCount);
         assertEquals(List.of("standard", "thaumcraft"), source.groups);
-		assertEquals(987654321L, source.seed);
-		assertEquals(-512, source.x);
-		assertEquals(1024, source.z);
-		assertEquals(Fragment.SIZE, source.width);
-		assertEquals(Fragment.SIZE, source.height);
+        assertEquals(987654321L, source.seed);
+        assertEquals(-512, source.x);
+        assertEquals(1024, source.z);
+        assertEquals(Fragment.SIZE, source.width);
+        assertEquals(Fragment.SIZE, source.height);
 
-		assertEquals(1, desert.size());
-		assertEquals(
-				"Possible Roguelike Dungeon — Desert (Pyramid entrance)",
-				desert.get(0).getName());
-		assertEquals(CoordinatesInWorld.from(-450, 1090), desert.get(0).getCoordinates());
-		assertTrue(desert.get(0).getImage() != null);
+        assertEquals(1, desert.size());
+        assertEquals(
+                "Possible Roguelike Dungeon — Desert (Pyramid entrance)", desert.get(0).getName());
+        assertEquals(CoordinatesInWorld.from(-450, 1090), desert.get(0).getCoordinates());
+        assertTrue(desert.get(0).getImage() != null);
 
-		assertEquals(1, swamp.size());
-		assertEquals(
-				"Possible Roguelike Dungeon — Swamp (Witch-house entrance)",
-				swamp.get(0).getName());
+        assertEquals(1, swamp.size());
+        assertEquals(
+                "Possible Roguelike Dungeon — Swamp (Witch-house entrance)",
+                swamp.get(0).getName());
 
-		assertEquals(1, villages.size());
-		assertEquals("Possible GTNH Village", villages.get(0).getName());
+        assertEquals(1, villages.size());
+        assertEquals("Possible GTNH Village", villages.get(0).getName());
 
-		assertEquals(1, lootGames.size());
-		assertEquals("Possible LootGames Game Dungeon", lootGames.get(0).getName());
-		assertTrue(lootGames.get(0).getImage() != null);
+        assertEquals(1, lootGames.size());
+        assertEquals("Possible LootGames Dungeon — Ordinary", lootGames.get(0).getName());
+        assertTrue(lootGames.get(0).getImage() != null);
 
-		assertEquals(1, slimeIslands.size());
-		assertEquals(
-				"Tinkers' Blue Slime Island (approximate center)",
-				slimeIslands.get(0).getName());
-		assertTrue(slimeIslands.get(0).getImage() != null);
+        assertEquals(1, slimeIslands.size());
+        assertEquals(
+                "Tinkers' Blue Slime Island (approximate center)", slimeIslands.get(0).getName());
+        assertTrue(slimeIslands.get(0).getImage() != null);
 
-		assertEquals(1, auraNodes.size());
-		assertEquals("Possible Thaumcraft Aura Node", auraNodes.get(0).getName());
-		assertEquals(1, altars.size());
-		assertEquals("Possible Thaumcraft Eldritch Altar", altars.get(0).getName());
-		assertEquals(1, meteorites.size());
-		assertEquals("Possible AE2 Meteorite", meteorites.get(0).getName());
-		assertEquals(CoordinatesInWorld.from(-180, 1280), meteorites.get(0).getCoordinates());
-		assertTrue(meteorites.get(0).getImage() != null);
+        assertEquals(1, auraNodes.size());
+        assertEquals("Possible Thaumcraft Aura Node", auraNodes.get(0).getName());
+        assertEquals(1, altars.size());
+        assertEquals("Possible Thaumcraft Eldritch Altar", altars.get(0).getName());
+        assertEquals(1, meteorites.size());
+        assertEquals("Possible AE2 Meteorite", meteorites.get(0).getName());
+        assertEquals(CoordinatesInWorld.from(-180, 1280), meteorites.get(0).getCoordinates());
+        assertTrue(meteorites.get(0).getImage() != null);
 
-		List<WorldIcon> vanillaDungeons =
-				producers.get(GtnhOverworldStructureType.VANILLA_SPAWNER_DUNGEON).getAt(corner, null);
-		assertEquals(1, source.dungeonQueryCount);
-		assertEquals(1, vanillaDungeons.size());
-		assertEquals(
-				"Possible Vanilla Spawner Dungeon (Y 34)",
-				vanillaDungeons.get(0).getName());
-		assertTrue(vanillaDungeons.get(0).getImage() != null);
-		assertEquals(Integer.valueOf(34), vanillaDungeons.get(0).getHeight());
-	}
-
-	@Test
-	public void queriesAndEmitsNetherStructuresInNetherDimension() throws Exception {
-		RecordingSource source = new RecordingSource();
-		GtnhRoguelikeDungeonProducers producers =
-				new GtnhRoguelikeDungeonProducers(
-						new GtnhMinecraftInterface(source),
-						24680L);
-		CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
-
-		List<WorldIcon> islands = producers
-				.get(GtnhNetherStructureType.TINKERS_NETHER_SLIME_ISLAND)
-				.getAt(corner, null);
-		List<WorldIcon> spires = producers
-				.get(GtnhNetherStructureType.AUTOMAGY_NETHER_SPIRE)
-				.getAt(corner, null);
-
-		assertEquals(1, source.netherQueryCount);
-		assertEquals(Dimension.NETHER.getId(), source.dimensionId);
-		assertEquals(1, islands.size());
-		assertEquals(
-				"Possible Tinkers' Nether Slime Island (approximate center)",
-				islands.get(0).getName());
-		assertEquals(Dimension.OVERWORLD, islands.get(0).getDimension());
-		assertEquals(1, spires.size());
-		assertEquals("Possible Automagy Nether Spire", spires.get(0).getName());
-		assertEquals(Dimension.OVERWORLD, spires.get(0).getDimension());
-	}
-
-	@Test
-	public void twilightLandmarkTypesCanBeLoadedIndependently() throws Exception {
-		RecordingSource source = new RecordingSource();
-		GtnhRoguelikeDungeonProducers producers =
-				new GtnhRoguelikeDungeonProducers(
-						new GtnhMinecraftInterface(source),
-						13579L);
-		CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
-
-		List<WorldIcon> naga = producers
-				.get(GtnhTwilightForestFeatureType.NAGA_COURTYARD)
-				.getAt(corner, null);
-		List<WorldIcon> lich = producers
-				.get(GtnhTwilightForestFeatureType.LICH_TOWER)
-				.getAt(corner, null);
-		List<WorldIcon> hydra = producers
-				.get(GtnhTwilightForestFeatureType.HYDRA_LAIR)
-				.getAt(corner, null);
-
-		assertEquals(1, source.twilightQueryCount);
-		assertEquals(1, naga.size());
-		assertEquals("Naga Courtyard", naga.get(0).getName());
-		assertEquals(1, lich.size());
-		assertEquals("Lich Tower", lich.get(0).getName());
-		assertEquals(0, hydra.size());
-	}
-
-	@Test
-	public void moonStructuresShareOneQueryAndUseTheMoonDimension() throws Exception {
-		RecordingSource source = new RecordingSource();
-		GtnhRoguelikeDungeonProducers producers =
-				new GtnhRoguelikeDungeonProducers(
-						new GtnhMinecraftInterface(source),
-						97531L);
-		CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
-
-		List<WorldIcon> dungeons = producers
-				.get(GtnhMoonStructureType.MOON_DUNGEON)
-				.getAt(corner, null);
-		List<WorldIcon> villages = producers
-				.get(GtnhMoonStructureType.MOON_VILLAGE)
-				.getAt(corner, null);
-
-		assertEquals(1, source.moonQueryCount);
-		assertEquals(-28, source.dimensionId);
-		assertEquals(1, dungeons.size());
-		assertEquals("Moon Dungeon", dungeons.get(0).getName());
-		assertEquals(Dimension.MOON, dungeons.get(0).getDimension());
-		assertEquals(
-				"galacticraft_moon_dungeon_brick.png",
-				GtnhMoonStructureType.MOON_DUNGEON.getMenuIcon());
-		assertEquals(1, villages.size());
-		assertEquals("Moon Village", villages.get(0).getName());
-		assertEquals(Dimension.MOON, villages.get(0).getDimension());
-		assertEquals(
-				"galacticraft_alien_villager.png",
-				GtnhMoonStructureType.MOON_VILLAGE.getMenuIcon());
-	}
-
-	@Test
-	public void spaceStructuresShareTheDimensionCacheAndKeepDedicatedIcons() throws Exception {
-		RecordingSource source = new RecordingSource();
-		GtnhRoguelikeDungeonProducers producers =
-				new GtnhRoguelikeDungeonProducers(
-						new GtnhMinecraftInterface(source),
-						86420L);
-		CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
-
-		List<WorldIcon> caverns = producers
-				.get(GtnhSpaceStructureType.MARS_CAVERN)
-				.getAt(corner, null);
-		List<WorldIcon> dungeons = producers
-				.get(GtnhSpaceStructureType.MARS_DUNGEON)
-				.getAt(corner, null);
-
-		assertEquals(1, source.spaceQueryCount);
-		assertEquals(Dimension.MARS.getId(), source.dimensionId);
-		assertEquals(1, caverns.size());
-		assertEquals("Mars Cavern", caverns.get(0).getName());
-		assertEquals(Dimension.MARS, caverns.get(0).getDimension());
-		assertEquals(
-				"galacticraft_mars_cavern_vine.png",
-				GtnhSpaceStructureType.MARS_CAVERN.getMenuIcon());
-		assertEquals(1, dungeons.size());
-		assertEquals("Mars Dungeon", dungeons.get(0).getName());
-		assertEquals(Dimension.MARS, dungeons.get(0).getDimension());
-	}
-
-	@Test
-	public void emitsDedicatedWorldSpawnOnlyInContainingFragment() throws Exception {
-		RecordingSource source = new RecordingSource();
-		CoordinatesInWorld spawn = CoordinatesInWorld.from(530, -15);
-		GtnhRoguelikeDungeonProducers producers = new GtnhRoguelikeDungeonProducers(
-				new GtnhMinecraftInterface(source),
-				123L,
-                new amidst.mojangapi.world.oracle.ImmutableWorldSpawnOracle(spawn));
-
-		List<WorldIcon> containing = producers
-				.get(GtnhOverworldStructureType.WORLD_SPAWN)
-				.getAt(CoordinatesInWorld.from(512, -512), null);
-		List<WorldIcon> adjacent = producers
-				.get(GtnhOverworldStructureType.WORLD_SPAWN)
-				.getAt(CoordinatesInWorld.from(0, -512), null);
-
-		assertEquals(1, containing.size());
-		assertEquals("GTNH World Spawn", containing.get(0).getName());
-		assertEquals(spawn, containing.get(0).getCoordinates());
-		assertEquals(0, adjacent.size());
-		assertEquals(0, source.queryCount);
-	}
-
-    @Test public void clearingDuringAnOldNegativeReplyCannotHideNewDungeon() throws Exception {
-        var entered=new java.util.concurrent.CountDownLatch(1);
-        var release=new java.util.concurrent.CountDownLatch(1);
-        var calls=new java.util.concurrent.atomic.AtomicInteger();
-        RecordingSource source=new RecordingSource() {
-            @Override public List<GtnhStructureDescriptor> sampleStructureGroup(long seed,int dimension,String key,int x,int z,int w,int h,String group) {
-                if(calls.incrementAndGet()==1) {
-                    entered.countDown();
-                    try {if(!release.await(3,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("timeout");}
-                    catch(InterruptedException e){throw new AssertionError(e);}
-                    return List.of();
-                }
-                return List.of(new GtnhStructureDescriptor("ROGUELIKE_DUNGEON","DESERT",20,20,"POSSIBLE"));
-            }
-        };
-        var producers=new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source),7L);
-        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
-        try {
-            var old=pool.submit(()->producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(CoordinatesInWorld.origin(),null));
-            assertTrue(entered.await(3,java.util.concurrent.TimeUnit.SECONDS));
-            producers.clearCachedPredictions();release.countDown();assertTrue(old.get().isEmpty());
-            assertEquals(1,producers.get(GtnhRoguelikeDungeonType.DESERT).getAt(CoordinatesInWorld.origin(),null).size());
-            assertEquals(2,calls.get());
-        }finally{release.countDown();pool.shutdownNow();}
+        List<WorldIcon> vanillaDungeons =
+                producers
+                        .get(GtnhOverworldStructureType.VANILLA_SPAWNER_DUNGEON)
+                        .getAt(corner, null);
+        assertEquals(1, source.dungeonQueryCount);
+        assertEquals(1, vanillaDungeons.size());
+        assertEquals("Possible Vanilla Spawner Dungeon (Y 34)", vanillaDungeons.get(0).getName());
+        assertTrue(vanillaDungeons.get(0).getImage() != null);
+        assertEquals(Integer.valueOf(34), vanillaDungeons.get(0).getHeight());
     }
 
-	private static class RecordingSource implements GtnhBiomeSource {
-		private final List<String> groups = new java.util.ArrayList<>();
+    @Test
+    public void queriesAndEmitsNetherStructuresInNetherDimension() throws Exception {
+        RecordingSource source = new RecordingSource();
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 24680L);
+        CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
+
+        List<WorldIcon> islands =
+                producers
+                        .get(GtnhNetherStructureType.TINKERS_NETHER_SLIME_ISLAND)
+                        .getAt(corner, null);
+        List<WorldIcon> spires =
+                producers.get(GtnhNetherStructureType.AUTOMAGY_NETHER_SPIRE).getAt(corner, null);
+
+        assertEquals(1, source.netherQueryCount);
+        assertEquals(Dimension.NETHER.getId(), source.dimensionId);
+        assertEquals(1, islands.size());
+        assertEquals(
+                "Possible Tinkers' Nether Slime Island (approximate center)",
+                islands.get(0).getName());
+        assertEquals(Dimension.OVERWORLD, islands.get(0).getDimension());
+        assertEquals(1, spires.size());
+        assertEquals("Possible Automagy Nether Spire", spires.get(0).getName());
+        assertEquals(Dimension.OVERWORLD, spires.get(0).getDimension());
+    }
+
+    @Test
+    public void twilightLandmarkTypesCanBeLoadedIndependently() throws Exception {
+        RecordingSource source = new RecordingSource();
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 13579L);
+        CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
+
+        List<WorldIcon> naga =
+                producers.get(GtnhTwilightForestFeatureType.NAGA_COURTYARD).getAt(corner, null);
+        List<WorldIcon> lich =
+                producers.get(GtnhTwilightForestFeatureType.LICH_TOWER).getAt(corner, null);
+        List<WorldIcon> hydra =
+                producers.get(GtnhTwilightForestFeatureType.HYDRA_LAIR).getAt(corner, null);
+
+        assertEquals(1, source.twilightQueryCount);
+        assertEquals(1, naga.size());
+        assertEquals("Naga Courtyard", naga.get(0).getName());
+        assertEquals(1, lich.size());
+        assertEquals("Lich Tower", lich.get(0).getName());
+        assertEquals(0, hydra.size());
+    }
+
+    @Test
+    public void moonStructuresShareOneQueryAndUseTheMoonDimension() throws Exception {
+        RecordingSource source = new RecordingSource();
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 97531L);
+        CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
+
+        List<WorldIcon> dungeons =
+                producers.get(GtnhMoonStructureType.MOON_DUNGEON).getAt(corner, null);
+        List<WorldIcon> villages =
+                producers.get(GtnhMoonStructureType.MOON_VILLAGE).getAt(corner, null);
+
+        assertEquals(1, source.moonQueryCount);
+        assertEquals(-28, source.dimensionId);
+        assertEquals(1, dungeons.size());
+        assertEquals("Moon Dungeon", dungeons.get(0).getName());
+        assertEquals(Dimension.MOON, dungeons.get(0).getDimension());
+        assertEquals(
+                "galacticraft_moon_dungeon_brick.png",
+                GtnhMoonStructureType.MOON_DUNGEON.getMenuIcon());
+        assertEquals(1, villages.size());
+        assertEquals("Moon Village", villages.get(0).getName());
+        assertEquals(Dimension.MOON, villages.get(0).getDimension());
+        assertEquals(
+                "galacticraft_alien_villager.png",
+                GtnhMoonStructureType.MOON_VILLAGE.getMenuIcon());
+    }
+
+    @Test
+    public void spaceStructuresShareTheDimensionCacheAndKeepDedicatedIcons() throws Exception {
+        RecordingSource source = new RecordingSource();
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 86420L);
+        CoordinatesInWorld corner = CoordinatesInWorld.from(0, 0);
+
+        List<WorldIcon> caverns =
+                producers.get(GtnhSpaceStructureType.MARS_CAVERN).getAt(corner, null);
+        List<WorldIcon> dungeons =
+                producers.get(GtnhSpaceStructureType.MARS_DUNGEON).getAt(corner, null);
+
+        assertEquals(1, source.spaceQueryCount);
+        assertEquals(Dimension.MARS.getId(), source.dimensionId);
+        assertEquals(1, caverns.size());
+        assertEquals("Mars Cavern", caverns.get(0).getName());
+        assertEquals(Dimension.MARS, caverns.get(0).getDimension());
+        assertEquals(
+                "galacticraft_mars_cavern_vine.png",
+                GtnhSpaceStructureType.MARS_CAVERN.getMenuIcon());
+        assertEquals(1, dungeons.size());
+        assertEquals("Mars Dungeon", dungeons.get(0).getName());
+        assertEquals(Dimension.MARS, dungeons.get(0).getDimension());
+    }
+
+    @Test
+    public void emitsDedicatedWorldSpawnOnlyInContainingFragment() throws Exception {
+        RecordingSource source = new RecordingSource();
+        CoordinatesInWorld spawn = CoordinatesInWorld.from(530, -15);
+        GtnhRoguelikeDungeonProducers producers =
+                new GtnhRoguelikeDungeonProducers(
+                        new GtnhMinecraftInterface(source),
+                        123L,
+                        new amidst.mojangapi.world.oracle.ImmutableWorldSpawnOracle(spawn));
+
+        List<WorldIcon> containing =
+                producers
+                        .get(GtnhOverworldStructureType.WORLD_SPAWN)
+                        .getAt(CoordinatesInWorld.from(512, -512), null);
+        List<WorldIcon> adjacent =
+                producers
+                        .get(GtnhOverworldStructureType.WORLD_SPAWN)
+                        .getAt(CoordinatesInWorld.from(0, -512), null);
+
+        assertEquals(1, containing.size());
+        assertEquals("GTNH World Spawn", containing.get(0).getName());
+        assertEquals(spawn, containing.get(0).getCoordinates());
+        assertEquals(0, adjacent.size());
+        assertEquals(0, source.queryCount);
+    }
+
+    @Test
+    public void clearingDuringAnOldNegativeReplyCannotHideNewDungeon() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        RecordingSource source =
+                new RecordingSource() {
+                    @Override
+                    public List<GtnhStructureDescriptor> sampleStructureGroup(
+                            long seed,
+                            int dimension,
+                            String key,
+                            int x,
+                            int z,
+                            int w,
+                            int h,
+                            String group) {
+                        if (calls.incrementAndGet() == 1) {
+                            entered.countDown();
+                            try {
+                                if (!release.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new AssertionError("timeout");
+                            } catch (InterruptedException e) {
+                                throw new AssertionError(e);
+                            }
+                            return List.of();
+                        }
+                        return List.of(
+                                new GtnhStructureDescriptor(
+                                        "ROGUELIKE_DUNGEON", "DESERT", 20, 20, "POSSIBLE"));
+                    }
+                };
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7L);
+        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var old =
+                    pool.submit(
+                            () ->
+                                    producers
+                                            .get(GtnhRoguelikeDungeonType.DESERT)
+                                            .getAt(CoordinatesInWorld.origin(), null));
+            assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS));
+            producers.clearCachedPredictions();
+            release.countDown();
+            assertTrue(old.get().isEmpty());
+            assertEquals(
+                    1,
+                    producers
+                            .get(GtnhRoguelikeDungeonType.DESERT)
+                            .getAt(CoordinatesInWorld.origin(), null)
+                            .size());
+            assertEquals(2, calls.get());
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    public void partialInvalidationRejectsOnlyAffectedInFlightResults() throws Exception {
+        for (boolean changed : new boolean[] {true, false}) {
+            var entered = new java.util.concurrent.CountDownLatch(1);
+            var release = new java.util.concurrent.CountDownLatch(1);
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            RecordingSource source =
+                    new RecordingSource() {
+                        @Override
+                        public List<GtnhStructureDescriptor> sampleStructureGroup(
+                                long seed,
+                                int dimension,
+                                String key,
+                                int x,
+                                int z,
+                                int w,
+                                int h,
+                                String group) {
+                            calls.incrementAndGet();
+                            entered.countDown();
+                            try {
+                                if (!release.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new AssertionError("timeout");
+                            } catch (InterruptedException e) {
+                                throw new AssertionError(e);
+                            }
+                            return List.of();
+                        }
+                    };
+            var producers =
+                    new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7L);
+            var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+            try {
+                var old =
+                        pool.submit(
+                                () ->
+                                        producers
+                                                .get(GtnhRoguelikeDungeonType.DESERT)
+                                                .getAt(CoordinatesInWorld.origin(), null));
+                assertTrue(entered.await(3, java.util.concurrent.TimeUnit.SECONDS));
+                producers.invalidateOverworldPredictions(
+                        java.util.Set.of(CoordinatesInWorld.from(changed ? 0 : 4096, 0)));
+                release.countDown();
+                assertTrue(old.get(3, java.util.concurrent.TimeUnit.SECONDS).isEmpty());
+                producers
+                        .get(GtnhRoguelikeDungeonType.DESERT)
+                        .getAt(CoordinatesInWorld.origin(), null);
+                assertEquals(changed ? 2 : 1, calls.get());
+            } finally {
+                release.countDown();
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void partialInvalidationPreservesOtherRegionsAndDimensions() throws Exception {
+        RecordingSource source = new RecordingSource();
+        var producers = new GtnhRoguelikeDungeonProducers(new GtnhMinecraftInterface(source), 7L);
+        var near = CoordinatesInWorld.origin();
+        var far = CoordinatesInWorld.from(4096, 0);
+        var overworld = producers.get(GtnhRoguelikeDungeonType.DESERT);
+        var nether = producers.get(GtnhNetherStructureType.TINKERS_NETHER_SLIME_ISLAND);
+        overworld.getAt(near, null);
+        overworld.getAt(far, null);
+        nether.getAt(near, null);
+        int before = source.queryCount;
+        producers.invalidateOverworldPredictions(java.util.Set.of(near));
+        overworld.getAt(far, null);
+        nether.getAt(near, null);
+        assertEquals(before, source.queryCount);
+        overworld.getAt(near, null);
+        assertEquals(before + 1, source.queryCount);
+    }
+
+    private static class RecordingSource implements GtnhBiomeSource {
+        private final List<String> groups = new java.util.ArrayList<>();
+
         @Override
-        public List<GtnhStructureDescriptor> sampleStructureGroup(long seed, int dimensionId,
-                String dimensionKey, int x, int z, int width, int height, String group) {
+        public List<GtnhStructureDescriptor> sampleStructureGroup(
+                long seed,
+                int dimensionId,
+                String dimensionKey,
+                int x,
+                int z,
+                int width,
+                int height,
+                String group) {
             groups.add(group);
             return sampleStructures(seed, dimensionId, x, z, width, height);
         }
-		private int queryCount;
-		private long seed;
-		private int x;
-		private int z;
-		private int width;
-		private int height;
-		private int dungeonQueryCount;
-		private int netherQueryCount;
-		private int twilightQueryCount;
-		private int moonQueryCount;
-		private int spaceQueryCount;
-		private int dimensionId;
 
-		@Override
-		public GtnhWorkerInfo getWorkerInfo() {
-			return new GtnhWorkerInfo(
-					PROTOCOL_VERSION,
-					0L,
-					"RWG",
-					"net.minecraft.world.WorldProviderSurface",
-					"rwg.world.ChunkManagerRealistic",
-					List.of(new GtnhBiomeDescriptor(
-							1,
-							"Plains",
-							0x77AA55,
-							0.8F,
-							0.4F,
-							0.1F,
-							0.2F)));
-		}
+        private int queryCount;
+        private long seed;
+        private int x;
+        private int z;
+        private int width;
+        private int height;
+        private int dungeonQueryCount;
+        private int netherQueryCount;
+        private int twilightQueryCount;
+        private int moonQueryCount;
+        private int spaceQueryCount;
+        private int dimensionId;
 
-		@Override
-		public int[] sampleBiomes(
-				long seed,
-				int dimensionId,
-				int blockX,
-				int blockZ,
-				int width,
-				int height,
-				int step) {
-			return new int[width * height];
-		}
+        @Override
+        public GtnhWorkerInfo getWorkerInfo() {
+            return new GtnhWorkerInfo(
+                    PROTOCOL_VERSION,
+                    0L,
+                    "RWG",
+                    "net.minecraft.world.WorldProviderSurface",
+                    "rwg.world.ChunkManagerRealistic",
+                    List.of(
+                            new GtnhBiomeDescriptor(
+                                    1, "Plains", 0x77AA55, 0.8F, 0.4F, 0.1F, 0.2F)));
+        }
 
-		@Override
-		public List<GtnhStructureDescriptor> sampleStructures(
-				long seed,
-				int dimensionId,
-				int blockX,
-				int blockZ,
-				int width,
-				int height) {
-			queryCount++;
-			this.dimensionId = dimensionId;
-			if (dimensionId == Dimension.END.getId()) {
-                return List.of(new GtnhStructureDescriptor("END_PLATINUM_ASTEROID", "", -258, 364, "EXACT_SEED", 167));
+        @Override
+        public int[] sampleBiomes(
+                long seed,
+                int dimensionId,
+                int blockX,
+                int blockZ,
+                int width,
+                int height,
+                int step) {
+            return new int[width * height];
+        }
+
+        @Override
+        public List<GtnhStructureDescriptor> sampleStructures(
+                long seed, int dimensionId, int blockX, int blockZ, int width, int height) {
+            queryCount++;
+            this.dimensionId = dimensionId;
+            if (dimensionId == Dimension.END.getId()) {
+                return List.of(
+                        new GtnhStructureDescriptor(
+                                "END_PLATINUM_ASTEROID", "", -258, 364, "EXACT_SEED", 167));
             }
-			if (dimensionId == Dimension.NETHER.getId()) {
-				netherQueryCount++;
-				return List.of(
-						new GtnhStructureDescriptor(
-								"TINKERS_NETHER_SLIME_ISLAND",
-								"",
-								64,
-								80,
-								"EXPECTED"),
-						new GtnhStructureDescriptor(
-								"AUTOMAGY_NETHER_SPIRE",
-								"",
-								96,
-								112,
-								"POSSIBLE"));
-			}
-			if (dimensionId == Dimension.TWILIGHT_FOREST.getId()) {
-				twilightQueryCount++;
-				return List.of(
-						new GtnhStructureDescriptor(
-								"TWILIGHT_FEATURE",
-								"NAGA_COURTYARD",
-								72,
-								88,
-								"EXACT"),
-						new GtnhStructureDescriptor(
-								"TWILIGHT_FEATURE",
-								"LICH_TOWER",
-								328,
-								344,
-								"EXACT"));
-			}
-			if (dimensionId == Dimension.MOON.getId()) {
-				moonQueryCount++;
-				return List.of(
-						new GtnhStructureDescriptor(
-								"MOON_DUNGEON",
-								"",
-								120,
-								136,
-								"EXPECTED"),
-						new GtnhStructureDescriptor(
-								"MOON_VILLAGE",
-								"",
-								248,
-								264,
-							"EXPECTED"));
-			}
-			if (dimensionId == Dimension.MARS.getId()) {
-				spaceQueryCount++;
-				return List.of(
-						new GtnhStructureDescriptor(
-								"MARS_CAVERN",
-								"",
-								48,
-								64,
-								"EXPECTED"),
-						new GtnhStructureDescriptor(
-								"MARS_DUNGEON",
-								"",
-								144,
-								160,
-								"EXPECTED"));
-			}
-			this.seed = seed;
-			this.x = blockX;
-			this.z = blockZ;
-			this.width = width;
-			this.height = height;
-			return List.of(
-					new GtnhStructureDescriptor(
-							"ROGUELIKE_DUNGEON",
-							"DESERT",
-							-450,
-							1090,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"ROGUELIKE_DUNGEON",
-							"SWAMP",
-							-200,
-							1300,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"OTHER",
-							"DESERT",
-							-400,
-							1100,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"VILLAGE",
-							"",
-							-300,
-							1200,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"LOOTGAMES_DUNGEON",
-							"",
-							-250,
-							1210,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"TINKERS_SLIME_ISLAND",
-							"",
-							-220,
-							1240,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"THAUMCRAFT_AURA_NODE",
-							"WILD",
-							-210,
-							1250,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"THAUMCRAFT_ELDRITCH_ALTAR",
-							"",
-							-205,
-							1260,
-							"POSSIBLE"),
-					new GtnhStructureDescriptor(
-							"AE2_METEORITE",
-							"SURFACE_BIASED",
-							-180,
-							1280,
-							"POSSIBLE"));
-		}
+            if (dimensionId == Dimension.NETHER.getId()) {
+                netherQueryCount++;
+                return List.of(
+                        new GtnhStructureDescriptor(
+                                "TINKERS_NETHER_SLIME_ISLAND", "", 64, 80, "EXPECTED"),
+                        new GtnhStructureDescriptor(
+                                "AUTOMAGY_NETHER_SPIRE", "", 96, 112, "POSSIBLE"));
+            }
+            if (dimensionId == Dimension.TWILIGHT_FOREST.getId()) {
+                twilightQueryCount++;
+                return List.of(
+                        new GtnhStructureDescriptor(
+                                "TWILIGHT_FEATURE", "NAGA_COURTYARD", 72, 88, "EXACT"),
+                        new GtnhStructureDescriptor(
+                                "TWILIGHT_FEATURE", "LICH_TOWER", 328, 344, "EXACT"));
+            }
+            if (dimensionId == Dimension.MOON.getId()) {
+                moonQueryCount++;
+                return List.of(
+                        new GtnhStructureDescriptor("MOON_DUNGEON", "", 120, 136, "EXPECTED"),
+                        new GtnhStructureDescriptor("MOON_VILLAGE", "", 248, 264, "EXPECTED"));
+            }
+            if (dimensionId == Dimension.MARS.getId()) {
+                spaceQueryCount++;
+                return List.of(
+                        new GtnhStructureDescriptor("MARS_CAVERN", "", 48, 64, "EXPECTED"),
+                        new GtnhStructureDescriptor("MARS_DUNGEON", "", 144, 160, "EXPECTED"));
+            }
+            this.seed = seed;
+            this.x = blockX;
+            this.z = blockZ;
+            this.width = width;
+            this.height = height;
+            return List.of(
+                    new GtnhStructureDescriptor(
+                            "ROGUELIKE_DUNGEON", "DESERT", -450, 1090, "POSSIBLE"),
+                    new GtnhStructureDescriptor(
+                            "ROGUELIKE_DUNGEON", "SWAMP", -200, 1300, "POSSIBLE"),
+                    new GtnhStructureDescriptor("OTHER", "DESERT", -400, 1100, "POSSIBLE"),
+                    new GtnhStructureDescriptor("VILLAGE", "", -300, 1200, "POSSIBLE"),
+                    new GtnhStructureDescriptor("LOOTGAMES_DUNGEON", "", -250, 1210, "POSSIBLE"),
+                    new GtnhStructureDescriptor("TINKERS_SLIME_ISLAND", "", -220, 1240, "POSSIBLE"),
+                    new GtnhStructureDescriptor(
+                            "THAUMCRAFT_AURA_NODE", "WILD", -210, 1250, "POSSIBLE"),
+                    new GtnhStructureDescriptor(
+                            "THAUMCRAFT_ELDRITCH_ALTAR", "", -205, 1260, "POSSIBLE"),
+                    new GtnhStructureDescriptor(
+                            "AE2_METEORITE", "SURFACE_BIASED", -180, 1280, "POSSIBLE"));
+        }
 
-		@Override
-		public List<GtnhStructureDescriptor> sampleVanillaDungeons(
-				long seed,
-				int dimensionId,
-				int blockX,
-				int blockZ,
-				int width,
-				int height) {
-			dungeonQueryCount++;
-			return List.of(new GtnhStructureDescriptor(
-					"VANILLA_SPAWNER_DUNGEON",
-					"34",
-					-190,
-					1270,
-					"POSSIBLE"));
-		}
-	}
+        @Override
+        public List<GtnhStructureDescriptor> sampleVanillaDungeons(
+                long seed, int dimensionId, int blockX, int blockZ, int width, int height) {
+            dungeonQueryCount++;
+            return List.of(
+                    new GtnhStructureDescriptor(
+                            "VANILLA_SPAWNER_DUNGEON", "34", -190, 1270, "POSSIBLE"));
+        }
+    }
 }

@@ -223,9 +223,8 @@ final class SurfaceBiomeSamplers {
              * array. blockExists only checks the loaded chunk provider and does
              * not generate or load a new chunk.
              */
-            if (world != null && world.blockExists(x, 0, z)) {
-                return world.getBiomeGenForCoords(x, z);
-            }
+            int stored = StoredBiomeAccess.at(world, x, z);
+            if (stored >= 0) return BiomeGenBase.getBiome(stored);
 
             return getPredictedBiomeAt(x, z);
         }

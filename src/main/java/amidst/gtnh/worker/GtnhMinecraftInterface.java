@@ -45,6 +45,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 					Dimension.TWILIGHT_FOREST));
 
 	private final GtnhBiomeSource source;
+    private final amidst.mojangapi.world.WorldType generator;
 	private final Set<Dimension> supportedDimensions;
     private final java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingDimensions;
 	private final GtnhWorkerInfo workerInfo;
@@ -71,6 +72,7 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 	GtnhMinecraftInterface(GtnhBiomeSource source, java.nio.file.Path biomeColorsFile)
 			throws MinecraftInterfaceException {
 		this.source = source;
+        this.generator = null;
 		this.workerInfo = source.getWorkerInfo();
         this.prospectingDimensions = List.copyOf(source.prospectingCatalog());
         EnumSet<Dimension> supported = EnumSet.copyOf(SUPPORTED_DIMENSIONS);
@@ -79,11 +81,11 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
                     && dimension.prospectingKey().equals(info.key))) supported.add(dimension);
         }
         this.supportedDimensions = Collections.unmodifiableSet(supported);
-		if (!"RWG".equalsIgnoreCase(workerInfo.worldType())) {
+		if (!"RWG".equalsIgnoreCase(workerInfo.worldType()) && !"RWG2_CONTINENTS".equalsIgnoreCase(workerInfo.worldType())) {
 			throw new MinecraftInterfaceException(
 					"GTNH biome worker world type is "
 							+ workerInfo.worldType()
-							+ "; this prototype requires RWG");
+							+ "; supported generators are RWG and RWG2_CONTINENTS");
 		}
 		BiomeList runtimeBiomes = new BiomeList();
 		workerInfo.biomes().stream().map(GtnhBiomeDescriptor::toBiome).forEach(runtimeBiomes::add);
@@ -93,10 +95,37 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 		this.runtimeBiomeColors = GtnhBiomeColorPalette.create(workerInfo, biomeColorsFile);
 	}
 
+    private GtnhMinecraftInterface(GtnhMinecraftInterface parent, amidst.mojangapi.world.WorldType type)
+            throws MinecraftInterfaceException {
+        source = parent.source.withGenerator(type.getSymbolicFieldName());
+        generator = type;
+        workerInfo = parent.workerInfo;
+        supportedDimensions = parent.supportedDimensions;
+        prospectingDimensions = parent.prospectingDimensions;
+        biomeList = parent.biomeList;
+        biomeIds = parent.biomeIds;
+        runtimeBiomeColors = parent.runtimeBiomeColors;
+    }
+
+    public java.util.List<amidst.mojangapi.world.WorldType> worldTypes() {
+        return "RWG2_CONTINENTS".equals(workerInfo.worldType())
+                ? List.of(amidst.mojangapi.world.WorldType.RWG2_SMOOTH, amidst.mojangapi.world.WorldType.RWG_ALPHA)
+                : List.of(amidst.mojangapi.world.WorldType.RWG_ALPHA);
+    }
+
+    public GtnhMinecraftInterface forWorldType(amidst.mojangapi.world.WorldType requested)
+            throws MinecraftInterfaceException {
+        var type = requested == amidst.mojangapi.world.WorldType.DEFAULT ? worldTypes().get(0) : requested;
+        if (!worldTypes().contains(type)) throw new MinecraftInterfaceException("Unsupported GTNH world type: " + type);
+        return generator == type ? this : new GtnhMinecraftInterface(this, type);
+    }
+
+    public boolean isRwg2() { return generator == amidst.mojangapi.world.WorldType.RWG2_SMOOTH; }
+
 	@Override
 	public WorldAccessor createWorldAccessor(WorldOptions worldOptions) throws MinecraftInterfaceException {
-		long requestedSeed = worldOptions.getWorldSeed().getLong();
-		return new Accessor(requestedSeed);
+        GtnhMinecraftInterface bound = forWorldType(worldOptions.getWorldType());
+        return bound.new Accessor(worldOptions.getWorldSeed().getLong());
 	}
 
 	@Override
@@ -167,6 +196,12 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
             int x, int z, int width, int height, String group) throws MinecraftInterfaceException {
         return source.sampleStructureGroup(seed, toWorkerDimensionId(dimension), dimension.getName(),
                 x, z, width, height, group);
+    }
+
+    public List<GtnhStructureDescriptor> sampleSelectedStructures(long seed, Dimension dimension,
+            int x, int z, int width, int height, String group, java.util.Set<String> types) throws MinecraftInterfaceException {
+        return source.sampleSelectedStructures(seed, toWorkerDimensionId(dimension), dimension.getName(),
+                x, z, width, height, group, types);
     }
 
     public List<GtnhStructureDescriptor> sampleVanillaDungeons(
@@ -260,8 +295,8 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 			return biomeDataMapper.apply(biomes);
 		}
 
-		@Override
-		public Set<Dimension> supportedDimensions() {
+        @Override
+        public Set<Dimension> supportedDimensions() {
 			return supportedDimensions;
 		}
 	}

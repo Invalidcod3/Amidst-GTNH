@@ -147,6 +147,20 @@ public class Actions {
     }
 
 	@CalledOnlyBy(AmidstThread.EDT)
+    public boolean isGtnh() { return dialogs.isGtnh(); }
+    public List<WorldType> worldTypes() { return dialogs.worldTypes(); }
+    public WorldType currentWorldType() {
+        ViewerFacade viewer = mainWindow.getViewerFacade();
+        return viewer == null ? worldTypes().get(0) : viewer.getWorldOptions().getWorldType();
+    }
+    public void switchWorldType(WorldType type) {
+        ViewerFacade viewer = mainWindow.getViewerFacade();
+        if (viewer != null && viewer.getWorldOptions().getWorldType() != type) {
+            biomeExporterDialog.softDispose();
+            worldSwitcher.displayWorld(new WorldOptions(viewer.getWorldOptions().getWorldSeed(), type));
+        }
+    }
+
 	public boolean canSwitchProfile() {
 		return application.canSwitchMinecraftProfile();
 	}

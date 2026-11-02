@@ -347,6 +347,9 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createGtnhOverworldStructureLayers() {
+		addGtnhStructureLayer(settings.showGtnhOceanMonuments, GtnhOverworldStructureType.OCEAN_MONUMENT, LayerIds.GTNH_OCEAN_MONUMENT);
+		addGtnhStructureLayer(settings.showRwg2TwilightPortals, GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL, LayerIds.GTNH_RWG2_TWILIGHT_PORTAL);
+		addGtnhStructureLayer(settings.showRwg2NetherPortals, GtnhOverworldStructureType.RWG2_NETHER_PORTAL, LayerIds.GTNH_RWG2_NETHER_PORTAL);
 		addGtnhStructureLayer(
 				settings.showGtnhWorldSpawn,
 				GtnhOverworldStructureType.WORLD_SPAWN,
@@ -367,6 +370,10 @@ public class LayersMenu {
 				settings.showGtnhLootGamesDungeons,
 				GtnhOverworldStructureType.LOOTGAMES_DUNGEON,
 				LayerIds.GTNH_LOOTGAMES_DUNGEON);
+		addGtnhStructureLayer(settings.showRwg2LavaCaveGames,
+				GtnhOverworldStructureType.RWG2_LAVA_CAVE_GAME, LayerIds.GTNH_RWG2_LAVA_CAVE_GAME);
+		addGtnhStructureLayer(settings.showRwg2RiverChamberGames,
+				GtnhOverworldStructureType.RWG2_RIVER_CHAMBER_GAME, LayerIds.GTNH_RWG2_RIVER_CHAMBER_GAME);
 		addGtnhStructureLayer(
 				settings.showGtnhTinkersSlimeIslands,
 				GtnhOverworldStructureType.TINKERS_SLIME_ISLAND,
@@ -395,11 +402,19 @@ public class LayersMenu {
 			GtnhOverworldStructureType type,
 			int layerId) {
 		if (viewerFacade.hasLayer(layerId)) {
-			overworldMenuItems.add(Menus.checkbox(
+			var item = Menus.checkbox(
 					menu,
 					setting,
 					type.getDisplayName(),
-					getIcon(type.getMenuIcon())));
+					new ImageIcon(type.getIcon().getImage()));
+			String tip = switch (type) {
+				case RWG2_LAVA_CAVE_GAME -> "Y=39 lava chamber game; RWG2 excludes volcano areas";
+				case RWG2_RIVER_CHAMBER_GAME -> "Y=66 river chamber game; placement requires water and air";
+				case LOOTGAMES_DUNGEON -> "Ordinary LootGames generation; separate from RWG2 cave games";
+				default -> null;
+			};
+			if (tip != null) item.setToolTipText(amidst.i18n.I18n.text(tip));
+			overworldMenuItems.add(item);
 		}
 	}
 

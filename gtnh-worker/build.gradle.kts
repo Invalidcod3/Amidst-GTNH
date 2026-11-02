@@ -56,6 +56,12 @@ val verifyReleaseJar by tasks.registering(JavaExec::class) {
 
 tasks.test {
     useJUnit()
+    for (property in listOf("rwg2ReferenceJar", "mcpCsvDir")) {
+        providers.gradleProperty(property).orNull?.let {
+            inputs.files(it)
+            systemProperty(property, file(it).absolutePath)
+        }
+    }
     providers.gradleProperty("rwgReferenceJar").orNull?.let {
         inputs.file(it)
         systemProperty("rwg.referenceJar", file(it).absolutePath)

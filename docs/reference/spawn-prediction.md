@@ -3,11 +3,13 @@
 ## 当前调用链
 
 1. `BiomeWorkerServer.sampleSpawn` 在游戏线程查询；只支持主世界。
-2. `SavedWorldSpawn` 优先读取种子匹配的已加载世界出生点，返回 `RECORDED` 和 X/Y/Z，不生成区块。
-3. 否则由 `SpawnSearchCache` 保留最多四个独立种子/提供器任务。`SpawnSearch.Job` 保留随机数和试探进度，超时后可续算。
-4. `SurfaceBiomeSamplers` 创建无存档的 RWG 预览世界。`RwgChunkBiomeReplay` 重放完整地形和地表替换，再由 `RwgSpawnCaves` 按配置执行原生洞穴生成。
+2. `SavedWorldSpawn` 优先读取种子与生成器均匹配的已加载世界出生点，返回 `RECORDED` 和 X/Y/Z，不生成区块。
+3. 否则由 `SpawnSearchCache` 保留最多四个独立种子/提供器/生成器/噪声模式任务。`SpawnSearch.Job` 保留随机数和试探进度，超时后可续算。
+4. RWG2 的 `Rwg2SurfaceBiomeSampler` 重放地形、河道、地表、洞穴、岩浆室和熔岩洞室，缓存紧凑表面摘要。RWG-Alpha 的 `SurfaceBiomeSamplers` 创建无存档的 RWG 预览世界。`RwgChunkBiomeReplay` 重放完整地形和地表替换，再由 `RwgSpawnCaves` 按配置执行原生洞穴生成。
 5. `SpawnSearch.Rules` 按原版或 BOP 提供器规则判断地表，返回 `ESTIMATED`。未知提供器返回 `UNAVAILABLE`；未完成结果不使用 `(0,0)` 代替。
 6. Viewer 的 `GtnhSpawnOracle` 在后台刷新快照；`SpawnProducer` 和 `GtnhSpawnIcon` 读取同一结果。`WorldIconSelection` 跟随当前出生点，避免信息框保留旧坐标。
+
+自 v0.4.10 起，RWG2 任意种子也返回估算出生点。此前该分支直接返回 `UNAVAILABLE`，造成无标记／无法跳转。原生 RWG2 的 `findBiomePosition` 返回 null 且不消耗随机数，从 `(0,0)` 开始原版游走。Viewer 首次获得结果或记录改变时只刷新旧／新位置附近瓦片，避免取消整屏采样。
 
 ## 必须保留的语义
 
@@ -35,6 +37,7 @@
 `SavedWorldSpawnTest` 检查存档优先与只读；`RwgChunkBiomeReplayTest`、`RwgSpawnCavesTest`
 检查阶段顺序、缓存、负坐标和原生洞穴几何；Viewer 的 `GtnhSpawnOracleTest`、
 `GtnhSpawnSelectionTest`、`GtnhBiomeWorkerClientTest` 检查异步快照、选中信息和协议。
+`InstalledRwg2ReferenceTest` 对照本机 RWG2 2.0.6，两种噪声、种子 0/-47、原版/BOP 两类规则，共八条游走的方块、高度、坐标和步数一致。参考环境关闭普通洞穴以匹配独立参考生成器；完整整合包首次建档精度仍待验收，普通洞穴几何另有测试。
 测试中的原生块注册不可用时使用独立块实例，不修改 JVM 的 `Blocks` 静态常量。
 
 算法依据：[GTNH RWG alpha-1.5.2](https://github.com/GTNewHorizons/Realistic-World-Gen/blob/alpha-1.5.2/src/main/java/rwg/world/ChunkGeneratorRealistic.java)、

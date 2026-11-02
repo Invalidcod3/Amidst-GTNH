@@ -2,7 +2,7 @@
 
 本项目由游戏外的 Java 17 Viewer 和游戏内的 Forge 1.7.10 Worker 组成。
 先读本文了解改动边界，再按 [BUILDING.md](BUILDING.md) 构建。
-当前用户行为见 [v0.3.3 发布说明](docs/release-v0.3.3.md)，历次算法调查见 [文档索引](docs/README.md)。
+当前用户行为见 [v0.4.0 发布说明](docs/release-v0.4.0.md)，历次算法调查见 [文档索引](docs/README.md)。
 
 ## 源码导航
 
@@ -17,6 +17,7 @@ Worker 路径以 `gtnh-worker/src/main/java/` 开始。
 | 磁盘缓存、视图恢复 | `amidst/gtnh/cache/`；`amidst/gui/main/viewer/ViewerFacade.java` | `MapCacheIdentity.java`、`MapCachePreparation.java` |
 | 结构候选和刷新 | `amidst/gtnh/structure/GtnhRoguelikeDungeonProducers.java` | 各 `*Predictor.java`、`RoguelikeSiteCheck.java` |
 | 主世界村庄规则 | 同上，沿用结构候选协议 | `RwgStructurePredictor.java`（选点）、`VillageGenerationRules.java`（生成器参数与准入） |
+| RWG2 并行与选择性结构 | `FragmentQueueProcessor.java`、`StructureQuerySelection.java`、`WorkerRequestGate.java` | `Rwg2SamplingPool.java`、`Rwg2PoiPool.java`、`StructureSelection.java` |
 | 出生点与选中信息 | `GtnhSpawnOracle.java`、`GtnhSpawnIcon.java`；`WorldIconSelection.java` | `SavedWorldSpawn.java`、`SpawnSearch.java`、`SpawnSearchCache.java`、`RwgSpawnCaves.java` |
 | 矿脉与流体 | `amidst/gtnh/prospecting/` | `ProspectingService.java` |
 | 准确性报告 | `amidst/gtnh/validation/`；`amidst/gui/export/AccuracyValidationDialog.java` | `AccuracyValidation.java` |
@@ -31,7 +32,9 @@ Worker 路径以 `gtnh-worker/src/main/java/` 开始。
 ### 线程和冷启动
 
 - Swing 控件只在事件线程修改。网络和文件准备工作放到后台；返回后先确认窗口仍存在、存档会话仍有效。
-- 游戏世界读取和生成算法回调由 Worker 的游戏线程队列执行。不能把世界读取直接迁移到连接线程来提高吞吐量。
+- 真实游戏世界读取、模组初始化和未经核验的回调由 Worker 游戏线程队列执行。RWG2 已核验的纯地形与洞室计算可在独占上下文内后台运行；不能把真实世界读取直接迁移到连接线程。
+- 底图任务与结构任务分别限流；底图完成后可放宽结构并发，但不得在运行中的任务退出前复用其上下文。关闭图层时取消旧请求，并在 Worker 的算法入口筛选类型。
+- `MapStorage` 写入和清理只能进入有界后台队列；队列满时跳过可选持久化，不得在调用线程同步落盘。读取不能等待目录清理锁。
 - 模组与配置文件指纹由 `MapCachePreparation` 的单个后台任务准备。未准备好时返回 `null`，直接查询地图；不能同步扫描配置目录，不能返回临时指纹。
 - `cache_context` 是可选请求。Viewer 最多等待 2 秒，失败后暂停缓存查询 30 秒；不能因此将正常瓦片请求判为离线或重试耗尽。
 - 游戏 tick 时间预算是软上限：原生单个区块回调不能抢占。涉及预算、暂停游戏或并发时，必须保留真实线程和连接测试。
@@ -72,11 +75,11 @@ Worker `@Mod` 版本及 Viewer 显示版本。`check`、`jar` 和配套发布构
 发布时修改 `src/main/resources/amidst/metadata.properties` 中的发行版本、文件名和显示后缀，
 以及 `AmidstGtnhBiomeWorkerMod.java` 中的 `@Mod` 版本。
 协议变更还需更新 metadata 的 `amidst.worker.protocol` 与两端 `PROTOCOL_VERSION`。
-协议号与发行版本相互独立；当前 v0.3.3 使用协议 25，以 metadata 和构建检查为准。
+协议号与发行版本相互独立；当前 v0.4.0 使用协议 31，以 metadata 和构建检查为准。
 
 ## 代码风格
 
-新增缓存、验证、导出和出生点模块统一使用四空格的 google-java-format AOSP 排版；旧模块局部修改遵循原文件风格。
+新增缓存、验证、导出、出生点和 RWG2 模块统一使用四空格的 google-java-format AOSP 排版；本版整理过的调度与请求入口也加入格式清单。其他旧模块局部修改遵循原文件风格。
 不要把无关旧代码的全文件格式化混入功能修复。格式化范围维护在 `tools/java-format-files.txt`。
 
 可选格式化工具为 google-java-format **1.28.0 all-deps**，从 Maven Central 下载到忽略的 `build/tools/`。
@@ -108,6 +111,7 @@ Viewer 的 10 个 `DevToolRunner` 项是默认禁用的开发工具，不是产�
 打包脚本保存当前工作树源码（含未提交但未被忽略的文件）、逐文件哈希、测试计数和基础提交号。
 打包前检查 `git status`，不要把本机配置、令牌、日志和游戏存档加入源码。
 发布目录保留旧版本 JAR 和日志；脚本只选择当前 metadata 命名的配套 JAR。
+配套 JAR 先暂存，再整体替换同名发布文件；被运行程序占用时保留暂存文件，不直接写坏旧 JAR。
 版本相同的归档已存在时脚本拒绝覆盖；重新构建使用明确的 `-PackageSuffix`，保留旧产物。
 
 ### 出生点维护
@@ -132,7 +136,7 @@ VN 的同名间距字段声明在子类上，不能从父类读取或把整合�
 ### 文档维护
 
 当前入口保持精简：`README.md` 用于快速安装，`docs/usage.md` 用于操作，
-`docs/release-v0.3.3.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
+`docs/release-v0.4.0.md` 汇总当前发行状态，本文用于源码边界。构建命令统一在 `BUILDING.md`。
 同版本变更直接合并到这些文档；算法依据放 `docs/reference/`，历史测量和旧补丁记录放 `docs/archive/`。
 移动文档后核对 Markdown 相对链接、源码注释中的路径及随包安装说明，不能仅修改文档索引。
 

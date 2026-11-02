@@ -45,6 +45,10 @@ public class LayerDeclaration {
 		return isVisible;
 	}
 
+    public boolean needsUpdate(Dimension dimension) {
+        return isVisible != (calculateIsEnabled(dimension) && isVisibleSetting.get());
+    }
+
 	/**
 	 * Updates the isVisible and isEnabled fields to the current setting values.
 	 * Returns whether the layer becomes visible.

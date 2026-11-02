@@ -76,6 +76,11 @@ final class ModStructurePredictor {
             int minZ,
             int width,
             int height) {
+        return predict(seed, dimension, minX, minZ, width, height, StructureSelection.ALL);
+    }
+
+    List<RoguelikeDungeonPredictor.StructureDescriptor> predict(long seed, int dimension, int minX, int minZ,
+            int width, int height, StructureSelection selection) {
         if (dimension != OVERWORLD && dimension != NETHER) {
             throw new IllegalArgumentException(
                     "mod structure prediction supports only overworld dimension 0 and Nether dimension -1");
@@ -85,11 +90,11 @@ final class ModStructurePredictor {
         long maxZ = (long) minZ + height;
         List<RoguelikeDungeonPredictor.StructureDescriptor> result =
                 new ArrayList<RoguelikeDungeonPredictor.StructureDescriptor>();
-        if (dimension == OVERWORLD) {
+        if (dimension == OVERWORLD && selection.wants("LOOTGAMES_DUNGEON")) {
             addLootGamesDungeons(seed, dimension, minX, minZ, maxX, maxZ, result);
         }
-        addSlimeIslands(seed, dimension, minX, minZ, maxX, maxZ, result);
-        if (dimension == OVERWORLD) {
+        if (dimension != OVERWORLD || selection.wants("TINKERS_SLIME_ISLAND")) addSlimeIslands(seed, dimension, minX, minZ, maxX, maxZ, result);
+        if (dimension == OVERWORLD && selection.wants("AE2_METEORITE")) {
             result.addAll(ae2MeteoritePredictor.predict(
                     seed,
                     dimension,
@@ -97,7 +102,7 @@ final class ModStructurePredictor {
                     minZ,
                     width,
                     height));
-        } else {
+        } else if (dimension == NETHER) {
             addAutomagyNetherSpires(seed, minX, minZ, maxX, maxZ, result);
         }
         return result;

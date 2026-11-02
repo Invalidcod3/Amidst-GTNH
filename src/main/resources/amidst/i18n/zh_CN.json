@@ -1,4 +1,6 @@
 {
+  " (64x64 blocks)": "（64×64 格）",
+  "Zoom in to load prospecting data": "请放大地图以加载矿脉和流体数据",
   "Double-click markers to add to JourneyMap": "双击路径点自动添加到 JourneyMap",
   "Added to JourneyMap: {0} ({1})": "已添加到 JourneyMap：{0}（{1}）",
   "JourneyMap import failed: {0}": "JourneyMap 导入失败：{0}",
@@ -225,6 +227,12 @@
   "Possible GTNH Village": "可能的 GTNH 村庄",
   "Possible GTNH Mineshaft": "可能的 GTNH 废弃矿井",
   "Possible LootGames Game Dungeon": "可能的 LootGames 游戏地牢",
+  "Possible LootGames Dungeon — Ordinary": "LootGames 普通地牢（候选）",
+  "LootGames — RWG2 Lava Cave": "LootGames — RWG2 熔岩洞室",
+  "LootGames — RWG2 River Chamber": "LootGames — RWG2 河道洞室",
+  "Y=39 lava chamber game; RWG2 excludes volcano areas": "Y=39 熔岩洞室小游戏；RWG2 会排除火山范围，不能据此定位火山",
+  "Y=66 river chamber game; placement requires water and air": "Y=66 河道洞室小游戏；实际放置需满足水和空气条件",
+  "Ordinary LootGames generation; separate from RWG2 cave games": "LootGames 自身生成规则；与 RWG2 洞室小游戏分别显示",
   "Tinkers' Blue Slime Island (approximate center)": "匠魂蓝色史莱姆空岛（近似中心）",
   "Possible Vanilla Spawner Dungeon": "可能的原版刷怪笼地牢",
   "Possible Thaumcraft Aura Node": "可能的神秘时代灵气节点",
@@ -398,5 +406,12 @@
   "Possible vertical extent": "可能覆盖的高度范围",
   "Seed candidate; actual ore blocks depend on placement": "种子候选；实际矿石方块取决于生成时的放置结果",
   "Load the matching End to distinguish island veins from void asteroids": "请在游戏中进入对应种子的末地，以区分岛屿矿脉与虚空小行星",
-  "Asteroid candidate; ordinary Visual Prospecting vein records cannot verify asteroid geometry or small ores": "小行星候选；普通 Visual Prospecting 矿脉记录不能验证小行星形状或小矿石"
+  "Asteroid candidate; ordinary Visual Prospecting vein records cannot verify asteroid geometry or small ores": "小行星候选；普通 Visual Prospecting 矿脉记录不能验证小行星形状或小矿石",
+  "Possible Ocean Monument": "可能的海底神殿",
+  "Natural Twilight Portal": "自然暮色传送门",
+  "Natural Nether Portal": "自然下界传送门",
+  "Lava cave": "熔岩洞室",
+  "River chamber": "河道洞室",
+  "Terrain candidate": "地形候选，待核验",
+  "Recorded": "已在世界中发现"
 }

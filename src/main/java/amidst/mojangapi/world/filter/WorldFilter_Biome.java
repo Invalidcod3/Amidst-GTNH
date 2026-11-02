@@ -7,9 +7,9 @@ import amidst.mojangapi.world.World;
 
 @NotThreadSafe
 public class WorldFilter_Biome extends WorldFilter {
-	private final Set<Short> validBiomeIndexes;
+	private final Set<Integer> validBiomeIndexes;
 
-	public WorldFilter_Biome(long worldFilterSize, Set<Short> validBiomeIndexes) {
+	public WorldFilter_Biome(long worldFilterSize, Set<Integer> validBiomeIndexes) {
 		super(worldFilterSize);
 		this.validBiomeIndexes = validBiomeIndexes;
 	}
@@ -19,7 +19,7 @@ public class WorldFilter_Biome extends WorldFilter {
 		int size = (int) (this.quarterFilterSize * 2);
 		return world.getOverworldBiomeDataOracle().getBiomeData(corner, size, size, true, data -> {
 			for (int biome: data) {
-				if (validBiomeIndexes.contains((short) biome)) {
+				if (validBiomeIndexes.contains(biome)) {
 					return true;
 				}
 			}

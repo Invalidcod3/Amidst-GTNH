@@ -29,6 +29,24 @@ public record GtnhWorldState(
 		return chunkXs.clone();
 	}
 
+    /** A newly obtained spawn marker only invalidates its old/new tiles, not the entire map. */
+    public GtnhWorldState withSpawnChange(
+            amidst.mojangapi.world.coordinates.CoordinatesInWorld before,
+            amidst.mojangapi.world.coordinates.CoordinatesInWorld after) {
+        if (fullRefresh) return this;
+        var positions = new java.util.LinkedHashSet<amidst.mojangapi.world.coordinates.CoordinatesInWorld>();
+        if (before != null) positions.add(before);
+        if (after != null) positions.add(after);
+        int[] xs = java.util.Arrays.copyOf(chunkXs, chunkXs.length + positions.size());
+        int[] zs = java.util.Arrays.copyOf(chunkZs, xs.length);
+        int index = chunkXs.length;
+        for (var point : positions) {
+            xs[index] = Math.toIntExact(Math.floorDiv(point.getX(), 16));
+            zs[index++] = Math.toIntExact(Math.floorDiv(point.getY(), 16));
+        }
+        return new GtnhWorldState(revision, false, xs, zs);
+    }
+
 	@Override
 	public int[] chunkZs() {
 		return chunkZs.clone();

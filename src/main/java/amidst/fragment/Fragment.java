@@ -46,6 +46,7 @@ public class Fragment {
 
 	private final AtomicReference<State> state;
 	private final AtomicBoolean biomeReloadRequested;
+    private final AtomicBoolean fullReloadRequested = new AtomicBoolean();
 	private volatile CoordinatesInWorld corner;
 	private volatile Dimension loadedDimension;
 	private volatile boolean recyclingRequested;
@@ -54,9 +55,19 @@ public class Fragment {
 	private final BitSet completedLayers = new BitSet();
     private final long[] layerRevisions;
     private final AtomicIntegerArray publishedLayers;
+    private volatile boolean synchronizedPublication;
+    private volatile DisplaySnapshot displaySnapshot;
+    private BitSet requiredLayers = new BitSet();
+    private static final DisplaySnapshot EMPTY_DISPLAY = new DisplaySnapshot(null, null,
+            new BufferedImage[0], List.of(), new BitSet());
+    private final ThreadLocal<DisplaySnapshot> frameSnapshot = new ThreadLocal<>();
+
+    /** Pending buffers belong to the loader; this immutable bundle alone belongs to the display. */
+    private record DisplaySnapshot(Dimension dimension, int[][] biomes, BufferedImage[] images,
+            List<List<WorldIcon>> icons, BitSet layers) {}
 
 	private volatile float alpha;
-	private volatile short[][] biomeData;
+	private volatile int[][] biomeData;
 	private volatile List<EndIsland> endIslands;
 	private final AtomicReferenceArray<BufferedImage> images;
 	private final AtomicReferenceArray<List<WorldIcon>> worldIcons;
@@ -79,27 +90,68 @@ public class Fragment {
 	}
 
 	public void initBiomeData(int width, int height) {
-		biomeData = new short[width][height];
+		biomeData = new int[width][height];
 	}
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	public void populateBiomeData(BiomeDataOracle biomeDataOracle) {
 		int width = biomeData.length;
 		int height = width == 0 ? 0 : biomeData[0].length;
+		int[][] result = new int[width][height];
 		boolean populated = biomeDataOracle.getBiomeData(corner, width, height, true, data -> {
 			for (int i = 0; i < width; i++) {
 				for (int j = 0; j < height; j++) {
-					biomeData[i][j] = (short) data[j * width + i];
+					result[i][j] = data[j * width + i];
 				}
 			}
 			return true;
 		}, () -> false);
 		if (!populated) throw new IllegalStateException("Biome query did not populate fragment " + corner);
+		biomeData = result;
 	}
 
-	public short getBiomeDataAt(int x, int y) {
+    /** Stage zero computes terrain; stage one completes the enabled overlays. */
+    public int loadingStage() { return completedLayers.get(LayerIds.BACKGROUND) ? 1 : 0; }
+
+    public int getBiomeDataAt(int x, int y) {
 		return biomeData[x][y];
 	}
+
+    public int getDisplayBiomeDataAt(int x, int y) {
+        if (!synchronizedPublication) return getBiomeDataAt(x, y);
+        DisplaySnapshot snapshot = displayForRead();
+        return snapshot == null || snapshot.biomes == null ? -1 : snapshot.biomes[x][y];
+    }
+
+    public void setSynchronizedPublication(boolean enabled) {
+        if (synchronizedPublication != enabled) displaySnapshot = null;
+        synchronizedPublication = enabled;
+    }
+
+    public boolean isSynchronizedPublication() { return synchronizedPublication; }
+
+    public void setRequiredLayers(BitSet layers) { requiredLayers = (BitSet) layers.clone(); }
+
+    public boolean hasAllRequiredLayers() {
+        BitSet missing = (BitSet) requiredLayers.clone();
+        missing.andNot(completedLayers);
+        return missing.isEmpty();
+    }
+
+    /** Pin once per paint, so publication between layer draws cannot mix two generations. */
+    public void beginDisplayFrame() {
+        if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displaySnapshot;
+            frameSnapshot.set(snapshot == null ? EMPTY_DISPLAY : snapshot);
+        }
+    }
+
+    public void endDisplayFrame() { frameSnapshot.remove(); }
+
+    private DisplaySnapshot displayForRead() {
+        DisplaySnapshot pinned = frameSnapshot.get();
+        return pinned == null ? displaySnapshot : pinned;
+    }
 
 	public void setEndIslands(List<EndIsland> endIslands) {
 		this.endIslands = endIslands;
@@ -118,6 +170,10 @@ public class Fragment {
 	}
 
 	public BufferedImage getImage(int layerId) {
+		if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displayForRead();
+            return snapshot == null || !snapshot.layers.get(layerId) ? null : snapshot.images[layerId];
+        }
 		return images.get(layerId);
 	}
 
@@ -126,6 +182,11 @@ public class Fragment {
 	}
 
 	public List<WorldIcon> getWorldIcons(int layerId) {
+        if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displayForRead();
+            return state.get() == State.UNINITIALIZED || snapshot == null || !snapshot.layers.get(layerId)
+                    ? Collections.emptyList() : snapshot.icons.get(layerId);
+        }
         if (loadedDimension != null && state.get() != State.UNINITIALIZED
                 && (state.get() == State.LOADED || publishedLayers.get(layerId) != 0)) {
 			List<WorldIcon> result = worldIcons.get(layerId);
@@ -169,7 +230,9 @@ public class Fragment {
 		this.recyclingRequested = false;
 		this.loadedDimension = null;
 		this.biomeReloadRequested.set(false);
+        this.fullReloadRequested.set(false);
 		this.dataDimension = null;
+        this.displaySnapshot = null;
         completedLayers.clear();
         clearPublishedLayers();
 	}
@@ -179,6 +242,7 @@ public class Fragment {
 			// Never publish a new dimension's layers under the old picture's
 			// identity, including a rapid dimension switch during a refresh.
             loadedDimension = null;
+            displaySnapshot = null;
             completedLayers.clear();
             clearPublishedLayers();
 			dataDimension = dimension;
@@ -204,7 +268,9 @@ public class Fragment {
         publishedLayers.set(layerId, 1);
         // Publish the complete accurate image independently of later icons.
         // This volatile identity write also publishes the completed biome data.
-        if (layerId == LayerIds.BACKGROUND) loadedDimension = dataDimension;
+        if (!synchronizedPublication && layerId == LayerIds.BACKGROUND) {
+                loadedDimension = dataDimension;
+        }
     }
 
     private void clearPublishedLayers() {
@@ -212,6 +278,11 @@ public class Fragment {
     }
 
     public boolean hasDisplayLayer(Dimension dimension, int layerId) {
+        if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displayForRead();
+            return snapshot != null && snapshot.dimension == dimension && dimension != null
+                    && state.get() != State.UNINITIALIZED && snapshot.layers.get(layerId);
+        }
         return hasDisplayData(dimension) && (state.get() == State.LOADED || publishedLayers.get(layerId) != 0);
     }
 
@@ -245,6 +316,15 @@ public class Fragment {
 		biomeReloadRequested.set(true);
 	}
 
+    public void requestFullReload() {
+        fullReloadRequested.set(true);
+        requestBiomeReload();
+    }
+
+    public boolean getAndClearFullReloadRequested() {
+        return fullReloadRequested.getAndSet(false);
+    }
+
 	public boolean getAndClearBiomeReloadRequested() {
 		return biomeReloadRequested.getAndSet(false);
 	}
@@ -258,15 +338,49 @@ public class Fragment {
 	}
 
 	public void setLoadedDimension(Dimension loadedDimension) {
+        if (synchronizedPublication) {
+            if (!hasAllRequiredLayers()) throw new IllegalStateException("Incomplete tile cannot be published");
+            publishSnapshot(loadedDimension, requiredLayers);
+        }
 		this.loadedDimension = loadedDimension;
 	}
 
+    /** Publish one coherent terrain snapshot while independent POI confirmation continues. */
+    public void publishTerrain() {
+        if (!synchronizedPublication || !completedLayers.get(LayerIds.BACKGROUND)) return;
+        BitSet ready = (BitSet) requiredLayers.clone();
+        ready.and(completedLayers);
+        publishSnapshot(dataDimension, ready);
+        loadedDimension = dataDimension;
+    }
+
+    private void publishSnapshot(Dimension dimension, BitSet ready) {
+            BufferedImage[] readyImages = new BufferedImage[images.length()];
+            java.util.ArrayList<List<WorldIcon>> readyIcons = new java.util.ArrayList<>(images.length());
+            for (int i = 0; i < readyImages.length; i++) {
+                readyImages[i] = ready.get(i) ? images.get(i) : null;
+                List<WorldIcon> icons = ready.get(i) ? worldIcons.get(i) : null;
+                readyIcons.add(icons == null ? List.of() : List.copyOf(icons));
+            }
+            displaySnapshot = new DisplaySnapshot(dimension, biomeData, readyImages,
+                    List.copyOf(readyIcons), (BitSet) ready.clone());
+    }
+
 	public Dimension getLoadedDimension() {
+        if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displayForRead();
+            return snapshot == null ? null : snapshot.dimension;
+        }
 		return loadedDimension;
 	}
 
 	/** The last completed picture remains visible while this coordinate refreshes. */
 	public boolean hasDisplayData(Dimension dimension) {
+        if (synchronizedPublication) {
+            DisplaySnapshot snapshot = displayForRead();
+            return snapshot != null && snapshot.dimension == dimension && dimension != null
+                    && state.get() != State.UNINITIALIZED;
+        }
 		return dimension == loadedDimension && loadedDimension != null && state.get() != State.UNINITIALIZED;
 	}
 	

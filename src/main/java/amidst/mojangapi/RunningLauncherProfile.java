@@ -45,7 +45,7 @@ public class RunningLauncherProfile {
 					? initialWorldOptions
 					: Optional.of(new WorldOptions(
 							WorldSeed.random(),
-							WorldType.DEFAULT));
+							minecraftInterface.worldTypes().get(0)));
 			return new RunningLauncherProfile(
 					worldBuilder,
 					launcherProfile,
@@ -79,6 +79,11 @@ public class RunningLauncherProfile {
 		this.minecraftInterface = minecraftInterface;
 		this.initialWorldOptions = initialWorldOptions;
 	}
+
+    public boolean isGtnh() { return minecraftInterface instanceof GtnhMinecraftInterface; }
+    public java.util.List<WorldType> worldTypes() {
+        return minecraftInterface instanceof GtnhMinecraftInterface gtnh ? gtnh.worldTypes() : WorldType.getSelectable();
+    }
 
 	public LauncherProfile getLauncherProfile() {
 		return launcherProfile;
@@ -118,6 +123,9 @@ public class RunningLauncherProfile {
 
 	public synchronized World createWorld(WorldOptions worldOptions)
 			throws MinecraftInterfaceException {
+        if (isGtnh() && worldOptions.getWorldType() == WorldType.DEFAULT)
+            worldOptions = new WorldOptions(worldOptions.getWorldSeed(), worldTypes().get(0))
+                    .withGeneratorOptions(worldOptions.getGeneratorOptions());
 		return worldBuilder.from(minecraftInterface, worldOptions);
 	}
 

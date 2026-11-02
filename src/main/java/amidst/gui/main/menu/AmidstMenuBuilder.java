@@ -86,6 +86,7 @@ public class AmidstMenuBuilder {
 		JMenu result = new JMenu("World");
 		result.setEnabled(false);
 		result.setMnemonic(KeyEvent.VK_W);
+        if (actions.isGtnh()) result.add(create_GtnhWorldType());
 		// @formatter:off
 		Menus.item(result, actions::goToCoordinate,        "Go to Coordinate ...",       KeyEvent.VK_C, MenuShortcuts.GO_TO_COORDINATE);
 		Menus.item(result, actions::goToSpawn,             "Go to World Spawn",          KeyEvent.VK_S, MenuShortcuts.GO_TO_WORLD_SPAWN);
@@ -113,6 +114,22 @@ public class AmidstMenuBuilder {
 		// @formatter:on
 		return result;
 	}
+
+    private JMenu create_GtnhWorldType() {
+        JMenu menu = new JMenu("World Type");
+        javax.swing.ButtonGroup group = new javax.swing.ButtonGroup();
+        for (WorldType type : actions.worldTypes()) {
+            javax.swing.JRadioButtonMenuItem item = new javax.swing.JRadioButtonMenuItem(type.getName());
+            group.add(item); menu.add(item);
+            item.addActionListener(e -> actions.switchWorldType(type));
+            menu.addMenuListener(new javax.swing.event.MenuListener() {
+                public void menuSelected(javax.swing.event.MenuEvent e) { item.setSelected(actions.currentWorldType() == type); }
+                public void menuDeselected(javax.swing.event.MenuEvent e) {}
+                public void menuCanceled(javax.swing.event.MenuEvent e) {}
+            });
+        }
+        return menu;
+    }
 
 	private JMenuItem create_Layers() {
 		JMenu result = new JMenu("Layers");
@@ -153,7 +170,11 @@ public class AmidstMenuBuilder {
 	private JMenu create_Settings_DefaultWorldType() {
 		JMenu result = new JMenu("Default World Type");
 		// @formatter:off
-		Menus.radios(result, settings.worldType, WorldType.getWorldTypeSettingAvailableValues());
+		if (actions.isGtnh()) {
+            List<String> values = new ArrayList<>(); values.add(WorldType.PROMPT_EACH_TIME);
+            actions.worldTypes().forEach(type -> values.add(type.getName()));
+            Menus.radios(result, settings.gtnhWorldType, values.toArray(String[]::new));
+        } else Menus.radios(result, settings.worldType, WorldType.getWorldTypeSettingAvailableValues());
 		// @formatter:on
 		return result;
 	}

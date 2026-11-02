@@ -15,11 +15,11 @@ import java.util.Random;
  */
 final class EndStructurePredictor {
 
-    static final int END_VOID_BIOME = 3000;
-    static final int CENTRAL_END_BIOME = 3001;
-    static final int INFESTED_FOREST_BIOME = 3002;
-    static final int BURNING_MOUNTAINS_BIOME = 3003;
-    static final int ENCHANTED_ISLAND_BIOME = 3004;
+    static final int END_VOID_BIOME = DisplayBiomeIds.SYNTHETIC_BASE;
+    static final int CENTRAL_END_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 1;
+    static final int INFESTED_FOREST_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 2;
+    static final int BURNING_MOUNTAINS_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 3;
+    static final int ENCHANTED_ISLAND_BIOME = DisplayBiomeIds.SYNTHETIC_BASE + 4;
 
     private static final int FRESH_END_DRAGON_SEED = 1;
     private static final int HEE_ISLAND_SPACING = 28;

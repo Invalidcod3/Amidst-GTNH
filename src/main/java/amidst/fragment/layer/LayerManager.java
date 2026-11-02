@@ -15,6 +15,7 @@ import amidst.threading.TaskQueue;
 @NotThreadSafe
 public class LayerManager {
 	private final TaskQueue invalidationOperations = new TaskQueue();
+    private final java.util.concurrent.atomic.AtomicLong invalidationEpoch = new java.util.concurrent.atomic.AtomicLong();
 
 	private final List<LayerDeclaration> declarations;
 	private final LayerLoader layerLoader;
@@ -57,8 +58,17 @@ public class LayerManager {
 
 	@CalledByAny
 	public void invalidateLayer(int layerId) {
+        invalidationEpoch.incrementAndGet();
 		invalidationOperations.invoke(() -> doInvalidateLayer(layerId));
 	}
+
+    public long getInvalidationEpoch() { return invalidationEpoch.get(); }
+
+    public boolean hasPendingUpdates(Dimension dimension) {
+        if (invalidationOperations.hasTasks() || currentDimension != dimension) return true;
+        for (LayerDeclaration layer : declarations) if (layer.needsUpdate(dimension)) return true;
+        return false;
+    }
 
 	@CalledOnlyBy(AmidstThread.FRAGMENT_LOADER)
 	private void doInvalidateLayer(int layerId) {
@@ -70,7 +80,15 @@ public class LayerManager {
 		layerLoader.loadAll(dimension, fragment);
 	}
 
-	public void prepareFragment(Fragment fragment, boolean reloadBiomes) {
+    public boolean loadTerrainStage(Dimension dimension, Fragment fragment) {
+        return layerLoader.loadTerrainStage(dimension, fragment);
+    }
+
+    public boolean requiresTerrainLoad(Fragment fragment) {
+        return layerLoader.requiresTerrainLoad(fragment);
+    }
+
+    public void prepareFragment(Fragment fragment, boolean reloadBiomes) {
 		layerLoader.prepareFragment(fragment, reloadBiomes);
 	}
 
