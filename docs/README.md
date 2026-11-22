@@ -4,8 +4,9 @@
 
 | 需要做什么 | 阅读 |
 | --- | --- |
-| 安装、核对当前版本及限制 | [项目说明](../README.md)、[v0.4.0 发布说明](release-v0.4.0.md) |
+| 安装、核对当前版本及限制 | [项目说明](../README.md)、[v0.4.2 发布说明](release-v0.4.2.md) |
 | 使用地图、验证和导出 | [使用说明](usage.md) |
+| 区分两版 Smooth、同步网页端与 Wiki | [RWG2 版本同步说明](reference/rwg2-version-sync.md) |
 | 修改代码、添加功能 | [开发维护](../CONTRIBUTING.md) |
 | 构建配套 JAR 和发布包 | [构建说明](../BUILDING.md) |
 

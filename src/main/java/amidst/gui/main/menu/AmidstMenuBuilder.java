@@ -171,6 +171,9 @@ public class AmidstMenuBuilder {
 		JMenu result = new JMenu("Default World Type");
 		// @formatter:off
 		if (actions.isGtnh()) {
+            WorldType preferred = WorldType.findInstance(settings.gtnhWorldType.get());
+            if (preferred != null && preferred.isRwg2() && actions.worldTypes().get(0).isRwg2())
+                settings.gtnhWorldType.set(actions.worldTypes().get(0).getName());
             List<String> values = new ArrayList<>(); values.add(WorldType.PROMPT_EACH_TIME);
             actions.worldTypes().forEach(type -> values.add(type.getName()));
             Menus.radios(result, settings.gtnhWorldType, values.toArray(String[]::new));

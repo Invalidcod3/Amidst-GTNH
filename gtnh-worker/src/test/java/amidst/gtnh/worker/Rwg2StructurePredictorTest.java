@@ -10,6 +10,41 @@ import org.junit.Test;
 import java.util.*;
 
 public class Rwg2StructurePredictorTest {
+    @Test
+    public void unlitPoolsRetainPortalLayerAndRejectedJunctionsDisappear() {
+        Terrain terrain =
+                new Terrain() {
+                    public String riverCenterpiece(long seed, int x, int z) {
+                        return "UNLIT_PORTAL";
+                    }
+                };
+        terrain.river = true;
+        List<RoguelikeDungeonPredictor.StructureDescriptor> results =
+                run(predictor(terrain, 7, true, true, false));
+        assertEquals(1, results.size());
+        assertEquals("RWG2_RIVER_CHAMBER_UNLIT", results.get(0).subtype);
+        assertTrue(
+                StructureSelection.of(Arrays.asList("RWG2_TWILIGHT_PORTAL"))
+                        .accepts(results.get(0)));
+        assertFalse(
+                StructureSelection.of(Arrays.asList("RWG2_RIVER_CHAMBER_GAME"))
+                        .accepts(results.get(0)));
+        assertEquals(
+                "LOOTGAMES_DUNGEON", run(predictor(terrain, 7, true, false, false)).get(0).kind);
+        Terrain rejected =
+                new Terrain() {
+                    public String riverCenterpiece(long seed, int x, int z) {
+                        return "UNLIT_PORTAL";
+                    }
+
+                    public boolean riverEligible(long seed, int x, int z) {
+                        return false;
+                    }
+                };
+        rejected.river = true;
+        assertTrue(run(predictor(rejected, 7, true, true, false)).isEmpty());
+    }
+
     private static final long CENTER = (long) -3 << 32 ^ 8L;
     private static final int TWILIGHT_SEED = 16;
 

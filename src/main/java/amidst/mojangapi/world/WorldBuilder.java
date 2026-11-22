@@ -55,6 +55,7 @@ public class WorldBuilder {
 	public World from(
 			MinecraftInterface minecraftInterface,
 			WorldOptions worldOptions) throws MinecraftInterfaceException {
+        worldOptions = resolveWorldOptions(minecraftInterface, worldOptions);
         if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh)
             minecraftInterface = gtnh.forWorldType(worldOptions.getWorldType());
 		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(worldOptions, minecraftInterface);
@@ -69,9 +70,10 @@ public class WorldBuilder {
 	public World fromSaveGame(MinecraftInterface minecraftInterface, SaveGame saveGame)
 			throws IOException,
 			MinecraftInterfaceException {
+        WorldOptions worldOptions = resolveWorldOptions(minecraftInterface, WorldOptions.fromSaveGame(saveGame));
         if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh)
-            minecraftInterface = gtnh.forWorldType(WorldOptions.fromSaveGame(saveGame).getWorldType());
-		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(WorldOptions.fromSaveGame(saveGame), minecraftInterface);
+            minecraftInterface = gtnh.forWorldType(worldOptions.getWorldType());
+		VersionFeatures versionFeatures = initInterfaceAndGetFeatures(worldOptions, minecraftInterface);
 		return create(
 				minecraftInterface,
 				minecraftInterface.getRecognisedVersion(),
@@ -85,6 +87,14 @@ public class WorldBuilder {
                         ? versionFeatures.get(FeatureKey.WORLD_SPAWN_ORACLE)
                         : new ImmutableWorldSpawnOracle(saveGame.getWorldSpawn()));
 	}
+
+    private WorldOptions resolveWorldOptions(MinecraftInterface minecraftInterface, WorldOptions options)
+            throws MinecraftInterfaceException {
+        if (minecraftInterface instanceof amidst.gtnh.worker.GtnhMinecraftInterface gtnh)
+            return new WorldOptions(options.getWorldSeed(), gtnh.resolveWorldType(options.getWorldType()))
+                    .withGeneratorOptions(options.getGeneratorOptions());
+        return options;
+    }
 
 	private VersionFeatures initInterfaceAndGetFeatures(WorldOptions worldOptions, MinecraftInterface minecraftInterface)
 		throws MinecraftInterfaceException {

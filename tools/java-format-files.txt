@@ -96,3 +96,9 @@ src/test/java/amidst/gtnh/worker/GtnhSpawnSelectionTest.java
 src/test/java/amidst/gtnh/worker/RwgGeneratorSelectionTest.java
 src/test/java/amidst/gtnh/worker/WorkerRequestGateTest.java
 src/test/java/amidst/gui/main/viewer/ViewerMouseListenerTest.java
+src/main/java/amidst/gtnh/vegetation/VegetationCatalog.java
+src/main/java/amidst/gtnh/vegetation/VegetationFilterPanel.java
+src/test/java/amidst/gtnh/vegetation/VegetationCatalogTest.java
+src/test/java/amidst/gtnh/vegetation/VegetationFilterPanelTest.java
+src/test/java/amidst/gtnh/vegetation/VegetationBiomeWidgetTest.java
+gtnh-worker/src/main/java/amidst/gtnh/worker/Rwg2Version.java

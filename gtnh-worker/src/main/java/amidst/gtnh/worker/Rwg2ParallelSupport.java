@@ -4,7 +4,7 @@ import java.io.InputStream;
 import java.lang.reflect.*;
 import java.util.*;
 
-/** Only the audited 2.0.6 callbacks may share their read-only biome/surface parameters. */
+/** Only callbacks from one complete audited build may share read-only parameters. */
 final class Rwg2ParallelSupport {
     private static Boolean supported;
 
@@ -14,7 +14,9 @@ final class Rwg2ParallelSupport {
             verify();
             supported = true;
             AmidstGtnhWorkerLog.LOG.info(
-                    "RWG2 2.0.6 detached biome sampling can run on background threads");
+                    "RWG2 "
+                            + Rwg2Version.current().version
+                            + " detached biome sampling can run on background threads");
         } catch (Exception | LinkageError failure) {
             supported = false;
             AmidstGtnhWorkerLog.LOG.warn(
@@ -25,12 +27,8 @@ final class Rwg2ParallelSupport {
     }
 
     private static void verify() throws Exception {
-        Properties approved = new Properties();
+        Properties approved = Rwg2Version.current().approved;
         ClassLoader loader = Rwg2ParallelSupport.class.getClassLoader();
-        try (InputStream in = loader.getResourceAsStream("rwg2-parallel-sha256.properties")) {
-            if (in == null) throw new IllegalStateException("Missing RWG2 parallel audit manifest");
-            approved.load(in);
-        }
         // Source review covers sampler helpers as well as the manager/generator entry points.
         // Read resource bytes without initializing optional support/decoration classes.
         for (String name : approved.stringPropertyNames()) {

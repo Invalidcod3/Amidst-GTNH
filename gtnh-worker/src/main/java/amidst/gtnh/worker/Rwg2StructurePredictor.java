@@ -19,6 +19,16 @@ final class Rwg2StructurePredictor {
         int[] riverCenter(int chunkBlockX, int chunkBlockZ);
 
         String biomeName(int x, int z);
+
+        default String riverCenterpiece(long seed, int x, int z) {
+            long position = (long) x << 32 ^ z & 0xffffffffL;
+            long choice = mix(seed ^ position ^ 0x94D049BB133111EBL);
+            return (choice & 1L) != 0 ? "NONE" : (choice >>> 1 & 3L) == 0 ? "LIT_PORTAL" : "PUZZLE";
+        }
+
+        default boolean riverEligible(long seed, int x, int z) {
+            return true;
+        }
     }
 
     private final Terrain terrain;
@@ -187,14 +197,16 @@ final class Rwg2StructurePredictor {
             if (river != null
                     && Math.floorDiv(river[0], 16) == chunkX
                     && Math.floorDiv(river[1], 16) == chunkZ) {
-                long position = (long) river[0] << 32 ^ river[1] & 0xffffffffL;
-                long choice = mix(seed ^ position ^ 0x94D049BB133111EBL);
-                if ((choice & 1L) == 0) {
-                    if ((choice >>> 1 & 3L) == 0 && twilight)
+                String centerpiece = terrain.riverCenterpiece(seed, river[0], river[1]);
+                if (!"NONE".equals(centerpiece)
+                        && terrain.riverEligible(seed, river[0], river[1])) {
+                    if (!"PUZZLE".equals(centerpiece) && twilight)
                         result.add(
                                 candidate(
                                         "RWG2_TWILIGHT_PORTAL",
-                                        "RWG2_RIVER_CHAMBER",
+                                        "UNLIT_PORTAL".equals(centerpiece)
+                                                ? "RWG2_RIVER_CHAMBER_UNLIT"
+                                                : "RWG2_RIVER_CHAMBER",
                                         river[0],
                                         river[1],
                                         64));
@@ -269,7 +281,9 @@ final class Rwg2StructurePredictor {
         if (expected != null && world.getBlock(candidate.x, candidate.y, candidate.z) == expected)
             return new RoguelikeDungeonPredictor.StructureDescriptor(
                     candidate.kind,
-                    candidate.subtype,
+                    "RWG2_RIVER_CHAMBER_UNLIT".equals(candidate.subtype)
+                            ? "RWG2_RIVER_CHAMBER"
+                            : candidate.subtype,
                     candidate.x,
                     candidate.z,
                     "RECORDED",
@@ -305,6 +319,7 @@ final class Rwg2StructurePredictor {
         private final Method cave, volcano;
         private final Rwg2JunctionLocator junction;
         private final Rwg2JunctionStrength strength;
+        private final Method modernCenter, modernStronger, modernChoice;
 
         NativeTerrain(Rwg2SurfaceBiomeSampler sampler) {
             this.sampler = sampler;
@@ -317,9 +332,25 @@ final class Rwg2StructurePredictor {
                         manager.getClass()
                                 .getMethod("getVolcanoVicinityCoordinates", int.class, int.class);
                 Class<?> type = Class.forName("rwg2.support.LandmarkDecorations");
-                Rwg2Runtime.verify(
-                        Rwg2Runtime.bytes(type),
-                        "a2097e807e3b4901c73b587cb04f4228f1b847106159073e23f5e27e803a0b2b");
+                Rwg2Version version = Rwg2Version.current();
+                version.verify(type);
+                if (version.modern) {
+                    Class<?> river = Class.forName("rwg2.support.RiverJunctionLandmark");
+                    version.verify(river);
+                    modernCenter =
+                            river.getMethod("findCenter", manager.getClass(), int.class, int.class);
+                    modernStronger =
+                            river.getMethod(
+                                    "hasStrongerCenter",
+                                    manager.getClass(),
+                                    long.class,
+                                    int.class,
+                                    int.class);
+                    modernChoice =
+                            river.getMethod("pickCenterpiece", long.class, int.class, int.class);
+                } else {
+                    modernCenter = modernStronger = modernChoice = null;
+                }
                 strength = new Rwg2JunctionStrength(manager);
                 Method biome = manager.getClass().getMethod("getBiomeDataAt", int.class, int.class);
                 Method lava =
@@ -364,7 +395,21 @@ final class Rwg2StructurePredictor {
         }
 
         public int[] riverCenter(int x, int z) {
-            return junction.find(x, z);
+            return modernCenter == null
+                    ? junction.find(x, z)
+                    : (int[]) call(modernCenter, null, manager, x, z);
+        }
+
+        public String riverCenterpiece(long seed, int x, int z) {
+            return modernChoice == null
+                    ? Terrain.super.riverCenterpiece(seed, x, z)
+                    : String.valueOf(call(modernChoice, null, seed, x, z));
+        }
+
+        public boolean riverEligible(long seed, int x, int z) {
+            return modernStronger == null
+                    || (sampler.hasOpenJunctionWater(x, z)
+                            && !(Boolean) call(modernStronger, null, manager, seed, x, z));
         }
 
         public String biomeName(int x, int z) {

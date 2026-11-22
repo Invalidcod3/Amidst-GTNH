@@ -19,10 +19,111 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.jar.*;
 
-/**
- * Runs the installed 2.0.6 algorithms; SRG member names alone are adapted to the test Minecraft.
- */
+/** Runs either audited release; SRG member names alone are adapted to the test Minecraft. */
 public class InstalledRwg2ReferenceTest {
+    @Test
+    public void handshakeVersionMatchesAuditedNativeBuild() throws Exception {
+        String path = System.getProperty("rwg2ReferenceJar");
+        String mappings = System.getProperty("mcpCsvDir");
+        Assume.assumeNotNull(path, mappings);
+        try (NativeLoader loader = new NativeLoader(path, mappings)) {
+            Method version =
+                    loader.loadClass("amidst.gtnh.worker.Rwg2Version")
+                            .getDeclaredMethod("auditedVersion");
+            version.setAccessible(true);
+            assertEquals(loader.modern() ? "2.0.9" : "2.0.6", version.invoke(null));
+        }
+    }
+
+    @Test
+    public void modernClimateScalingOffsetsAndTaintMatchNativeManager() throws Exception {
+        String path = System.getProperty("rwg2ReferenceJar");
+        String mappings = System.getProperty("mcpCsvDir");
+        Assume.assumeNotNull(path, mappings);
+        BiomeGenBase[] registry = BiomeGenBase.getBiomeGenArray().clone();
+        try (NativeLoader loader = new NativeLoader(path, mappings)) {
+            if (!loader.modern()) return; // This configuration did not exist in 2.0.6.
+            loader.configure();
+            loader.loadClass("rwg2.biomes.base.BaseBiomes").getMethod("load").invoke(null);
+            Class<?> support = loader.loadClass("rwg2.support.Support");
+            support.getMethod("init", boolean.class).invoke(null, false);
+            Object taint =
+                    loader.loadClass("rwg2.biomes.realistic.RealisticBiomeBase")
+                            .getField("desert")
+                            .get(null);
+            support.getField("taintedLand").set(null, taint);
+            for (String climate : new String[] {"snow", "cold", "hot", "wet"}) {
+                Object pool = support.getField(climate).get(null);
+                ((List) pool.getClass().getField("small").get(pool)).add(taint);
+            }
+            Class<?> config = loader.loadClass("rwg2.config.ContinentalConfig");
+            Class<?> bands = loader.loadClass("rwg2.config.ClimateBandConfig");
+            Class<?> migration = loader.loadClass("rwg2.config.MigrationConfig");
+            Class<?> runtime = loader.loadClass("amidst.gtnh.worker.Rwg2Runtime");
+            Method detached = runtime.getDeclaredMethod("manager", long.class, boolean.class);
+            detached.setAccessible(true);
+            Class<?> manager = loader.loadClass("rwg2.world.ChunkManagerRealistic");
+            Method biome = manager.getMethod("getBiomeDataAt", int.class, int.class);
+            Class<?> dataClass = loader.loadClass("rwg2.world.RwgWorldSavedData");
+            Object data = dataClass.getConstructor().newInstance();
+            field(dataClass, "INSTANCE").set(null, data);
+            Class<?> mode = loader.loadClass("rwg2.util.NoiseImplementation");
+            int checked = 0;
+            for (boolean simplex : new boolean[] {false, true}) {
+                field(dataClass, "noiseImplementation")
+                        .set(data, Enum.valueOf((Class) mode, simplex ? "OPENSIMPLEX" : "PERLIN"));
+                for (int scenario = 0; scenario < 4; scenario++) {
+                    config.getField("biomeSizeMultiplier")
+                            .setFloat(null, new float[] {1f, .25f, 2.5f, 10f}[scenario]);
+                    config.getField("perContinentTaintedLand").setBoolean(null, scenario != 1);
+                    config.getField("averageTaintedLandPerContinent")
+                            .setFloat(null, scenario == 2 ? 0f : 4f);
+                    bands.getField("enabled").setBoolean(null, scenario >= 2);
+                    migration.getField("biomeOffsetX").setInt(null, scenario * 1731);
+                    migration.getField("biomeOffsetZ").setInt(null, -scenario * 2459);
+                    migration.getField("landmassOffsetX").setInt(null, -scenario * 341);
+                    migration.getField("landmassOffsetZ").setInt(null, scenario * 913);
+                    long seed = -47L + scenario;
+                    Object expected =
+                            manager.getConstructor(long.class, boolean.class)
+                                    .newInstance(seed, true);
+                    ((net.minecraft.world.WorldSavedData) data).setDirty(false);
+                    Object actual = detached.invoke(null, seed, simplex);
+                    for (String field :
+                            new String[] {
+                                "climateWidth",
+                                "biomeWidth",
+                                "climateWarpStrength",
+                                "climateBandBlend",
+                                "climateBandDriftStrength",
+                                "climateBandDriftScale",
+                                "perContinentTaintedLand"
+                            })
+                        assertEquals(
+                                field,
+                                field(manager, field).get(expected),
+                                field(manager, field).get(actual));
+                    assertArrayEquals(
+                            (Object[]) field(manager, "smallBiomes").get(expected),
+                            (Object[]) field(manager, "smallBiomes").get(actual));
+                    Random random = new Random(89127);
+                    for (int i = 0; i < 2500; i++) {
+                        int x = random.nextInt(60001) - 30000, z = random.nextInt(60001) - 30000;
+                        assertSame(
+                                "config=" + scenario + " at " + x + "," + z,
+                                biome.invoke(expected, x, z),
+                                biome.invoke(actual, x, z));
+                        checked++;
+                    }
+                    assertFalse(((net.minecraft.world.WorldSavedData) data).isDirty());
+                }
+            }
+            System.out.println("RWG2 2.0.9 configuration parity: " + checked + " biome samples");
+        } finally {
+            System.arraycopy(registry, 0, BiomeGenBase.getBiomeGenArray(), 0, registry.length);
+        }
+    }
+
     @Test
     public void detachedReplayMatchesNativeFinalBiomesAndPreservesGameStatics() throws Exception {
         String path = System.getProperty("rwg2ReferenceJar");
@@ -35,12 +136,7 @@ public class InstalledRwg2ReferenceTest {
             assertNotSame(
                     referenceBlocks.getField("air").get(null),
                     referenceBlocks.getField("stone").get(null));
-            int[] ids =
-                    (int[])
-                            loader.loadClass("rwg2.config.ConfigRWG")
-                                    .getField("biomeIDs")
-                                    .get(null);
-            for (int i = 0; i < ids.length; i++) ids[i] = 200 + i;
+            int[] ids = loader.configure();
             loader.loadClass("rwg2.biomes.base.BaseBiomes").getMethod("load").invoke(null);
             // This test JVM has vanilla's registry size. Keep real biome objects, but expose
             // the installed pack's extended IDs to the complete sampler/output path.
@@ -62,8 +158,16 @@ public class InstalledRwg2ReferenceTest {
             support.getField("lavaCaveMarkerBiome").set(null, BiomeGenBase.hell);
             Class<?> runtime = loader.loadClass("amidst.gtnh.worker.Rwg2Runtime");
             byte[] raw = loader.raw("rwg2/world/ChunkGeneratorRealistic.class");
+            Properties approved = new Properties();
+            try (InputStream in =
+                    loader.getResourceAsStream(
+                            loader.modern()
+                                    ? "rwg2-parallel-2.0.9-sha256.properties"
+                                    : "rwg2-parallel-sha256.properties")) {
+                approved.load(in);
+            }
             Rwg2Runtime.verify(
-                    raw, "1517b2306a0db3c220a0afb63569c4b5e95658ba5c9d593c950ae273ca675d55");
+                    raw, approved.getProperty("rwg2/world/ChunkGeneratorRealistic.class"));
             Class<?> detached = loader.defineMapped(Rwg2Runtime.detach(raw));
             field(runtime, "generatorCopy").set(null, detached);
             Class<?> samplerClass = loader.loadClass("amidst.gtnh.worker.Rwg2SurfaceBiomeSampler");
@@ -81,7 +185,10 @@ public class InstalledRwg2ReferenceTest {
             viable.setAccessible(true);
             // The independent reference removes ordinary cave/structure map-gen calls. Compare
             // all terrain blocks with caves disabled, including RWG2 lava and volcano chambers.
-            loader.loadClass("rwg2.config.ConfigRWG")
+            loader.loadClass(
+                            loader.modern()
+                                    ? "rwg2.config.SettingsConfig"
+                                    : "rwg2.config.ConfigRWG")
                     .getField("generateCaves")
                     .setBoolean(null, false);
             Class<?> managerClass = loader.loadClass("rwg2.world.ChunkManagerRealistic");
@@ -192,6 +299,20 @@ public class InstalledRwg2ReferenceTest {
                                 "Underground terrain at " + Arrays.toString(chunk),
                                 expectedTerrain,
                                 (Block[]) underground.invoke(sampler, chunk[0], chunk[1]));
+                        if (loader.modern()) {
+                            Method nativeWater =
+                                    nativeClass.getDeclaredMethod(
+                                            "hasOpenJunctionWater", int.class, int.class);
+                            Method replayWater =
+                                    samplerClass.getDeclaredMethod(
+                                            "hasOpenJunctionWater", int.class, int.class);
+                            nativeWater.setAccessible(true);
+                            replayWater.setAccessible(true);
+                            assertEquals(
+                                    "Junction terrain at " + Arrays.toString(chunk),
+                                    nativeWater.invoke(nativeGenerator, bx, bz),
+                                    replayWater.invoke(sampler, bx, bz));
+                        }
                     }
                     assertArrayEquals(colors, (byte[]) palette.get(null));
                     assertEquals(!simplex, switchField.getBoolean(null));
@@ -323,7 +444,7 @@ public class InstalledRwg2ReferenceTest {
         Method available = guard.getDeclaredMethod("available");
         available.setAccessible(true);
         assertEquals(
-                "Installed 2.0.6 callbacks must pass the parallel audit",
+                "Installed callbacks must pass the selected parallel audit",
                 true,
                 available.invoke(null));
         Class<?> serverClass = loader.loadClass("amidst.gtnh.worker.BiomeWorkerServer");
@@ -720,10 +841,17 @@ public class InstalledRwg2ReferenceTest {
         Object terrain = constructor.newInstance(sampler);
         Method river = terrainClass.getDeclaredMethod("riverCenter", int.class, int.class);
         river.setAccessible(true);
-        Class<?> landmarks = loader.loadClass("rwg2.support.LandmarkDecorations");
+        Class<?> landmarks =
+                loader.loadClass(
+                        loader.modern()
+                                ? "rwg2.support.RiverJunctionLandmark"
+                                : "rwg2.support.LandmarkDecorations");
         Method junction =
                 landmarks.getDeclaredMethod(
-                        "findJunctionCenter", manager.getClass(), int.class, int.class);
+                        loader.modern() ? "findCenter" : "findJunctionCenter",
+                        manager.getClass(),
+                        int.class,
+                        int.class);
         junction.setAccessible(true);
         assertArrayEquals(
                 (int[]) junction.invoke(null, manager, -16, 0),
@@ -733,6 +861,41 @@ public class InstalledRwg2ReferenceTest {
         for (long seed : new long[] {0, 3, 6, 16, -47, Long.MIN_VALUE}) {
             long value = seed ^ ((long) -3 << 32 ^ 8L) ^ 0x94D049BB133111EBL;
             assertEquals(mix.invoke(null, value), Rwg2StructurePredictor.mix(value));
+        }
+        if (loader.modern()) {
+            Method choice =
+                    terrainClass.getDeclaredMethod(
+                            "riverCenterpiece", long.class, int.class, int.class);
+            choice.setAccessible(true);
+            Class<?> config = loader.loadClass("rwg2.config.LandmarkDecorationsConfig");
+            Field chance = config.getField("twilightForestPortalChance");
+            Field unlit = config.getField("twilightForestPortalUnlitChance");
+            float oldChance = chance.getFloat(null), oldUnlit = unlit.getFloat(null);
+            try {
+                for (boolean pools : new boolean[] {false, true}) {
+                    chance.setFloat(null, 1f);
+                    unlit.setFloat(null, pools ? 1f : 0f);
+                    int portals = 0;
+                    for (long seed = 0; seed < 64; seed++) {
+                        String near = (String) choice.invoke(terrain, seed, -3499, 0);
+                        assertTrue(near.equals("NONE") || near.equals("PUZZLE"));
+                        String far = (String) choice.invoke(terrain, seed, -3500, 0);
+                        if (!far.equals("NONE")) {
+                            assertEquals(pools ? "UNLIT_PORTAL" : "LIT_PORTAL", far);
+                            portals++;
+                        }
+                    }
+                    assertTrue(portals > 0);
+                }
+                chance.setFloat(null, 0f);
+                for (long seed = 0; seed < 64; seed++) {
+                    String result = (String) choice.invoke(terrain, seed, 100000, -100000);
+                    assertTrue(result.equals("NONE") || result.equals("PUZZLE"));
+                }
+            } finally {
+                chance.setFloat(null, oldChance);
+                unlit.setFloat(null, oldUnlit);
+            }
         }
     }
 
@@ -954,9 +1117,12 @@ public class InstalledRwg2ReferenceTest {
                 Object manager = field(samplerClass, "manager").get(nativeSampler);
                 Object cached = terrainCtor.newInstance(ctor.newInstance(9182741L, simplex));
                 Method original =
-                        loader.loadClass("rwg2.support.LandmarkDecorations")
+                        loader.loadClass(
+                                        loader.modern()
+                                                ? "rwg2.support.RiverJunctionLandmark"
+                                                : "rwg2.support.LandmarkDecorations")
                                 .getDeclaredMethod(
-                                        "findJunctionCenter",
+                                        loader.modern() ? "findCenter" : "findJunctionCenter",
                                         manager.getClass(),
                                         int.class,
                                         int.class);
@@ -1026,6 +1192,43 @@ public class InstalledRwg2ReferenceTest {
                     String[] parts = line.split(",");
                     if (parts.length >= 2) names.put(parts[0], parts[1]);
                 }
+        }
+
+        boolean modern() {
+            return jar.getJarEntry("rwg2/config/SettingsConfig.class") != null;
+        }
+
+        int[] configure() throws Exception {
+            int[] ids;
+            if (modern()) {
+                // Apply the release's annotated defaults without registering or writing configs.
+                for (String name :
+                        new String[] {
+                            "BiomeIdConfig",
+                            "ClimateBandConfig",
+                            "ContinentalConfig",
+                            "DebugConfig",
+                            "LandmarkDecorationsConfig",
+                            "MigrationConfig",
+                            "SettingsConfig"
+                        }) {
+                    ClassNode node = new ClassNode();
+                    new ClassReader(raw("rwg2/config/" + name + ".class")).accept(node, 0);
+                    Class<?> type = loadClass("rwg2.config." + name);
+                    for (FieldNode f : node.fields) {
+                        if (f.visibleAnnotations == null) continue;
+                        for (AnnotationNode annotation : f.visibleAnnotations)
+                            if (annotation.desc.contains("Config$Default")) {
+                                Object value = annotation.values.get(1);
+                                if (name.equals("BiomeIdConfig")) value = (Integer) value - 100;
+                                type.getField(f.name).set(null, value);
+                            }
+                    }
+                }
+                ids = new int[30];
+            } else ids = (int[]) loadClass("rwg2.config.ConfigRWG").getField("biomeIDs").get(null);
+            for (int i = 0; i < ids.length; i++) ids[i] = 200 + i;
+            return ids;
         }
 
         byte[] raw(String resource) throws IOException {

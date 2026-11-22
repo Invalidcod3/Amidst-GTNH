@@ -93,6 +93,13 @@ public class GtnhRoguelikeDungeonProducersTest {
                                         32,
                                         32,
                                         "RECORDED",
+                                        64),
+                                new GtnhStructureDescriptor(
+                                        "RWG2_TWILIGHT_PORTAL",
+                                        "RWG2_RIVER_CHAMBER_UNLIT",
+                                        48,
+                                        48,
+                                        "TERRAIN_CANDIDATE",
                                         64));
                     }
                 };
@@ -112,6 +119,14 @@ public class GtnhRoguelikeDungeonProducersTest {
         assertTrue(game.getName().contains("Terrain candidate"));
         assertEquals(Integer.valueOf(64), portal.getHeight());
         assertTrue(portal.getName().contains("Recorded"));
+        var pool =
+                producers
+                        .get(GtnhOverworldStructureType.RWG2_TWILIGHT_PORTAL)
+                        .getAt(CoordinatesInWorld.origin(), null)
+                        .get(1);
+        assertTrue(pool.getName().contains("Unlit Natural Twilight Pool"));
+        org.junit.Assert.assertNotSame(portal.getImage(), pool.getImage());
+        assertEquals(Integer.valueOf(64), pool.getHeight());
     }
 
     @Test

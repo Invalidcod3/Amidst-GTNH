@@ -53,7 +53,45 @@ public class ViewerFacade {
     }
     public boolean hasProspecting(Dimension dimension) { return prospecting.dimensionInfo(dimension) != null; }
     public void refreshProspecting() { prospecting.refresh(); }
+
+    public boolean hasVegetationFilter() {
+        return !world.vegetationBiomes().isEmpty()
+                && amidst.gtnh.vegetation.VegetationCatalog.supports(dimensionSetting.get());
+    }
+
+    public void filterBiomesByVegetation(java.awt.Component parent) {
+        Dimension dimension = dimensionSetting.get();
+        var result = amidst.gtnh.vegetation.VegetationFilterPanel.show(parent,
+                world.vegetationBiomes(), world.getWorldOptions().getWorldType(), dimension, vegetationSelection);
+        if (result == null || disposed || dimension != dimensionSetting.get()) return;
+        if (result.clear()) {
+            clearVegetationHighlight();
+            return;
+        } else {
+            biomeSelection.highlightOnly(result.biomeIds());
+            vegetationSelection = result.selection();
+            vegetationHighlightDimension = dimension;
+        }
+        layerReloader.reloadBackgroundLayer();
+    }
+
+    public void clearVegetationHighlight() {
+        biomeSelection.clearHighlight();
+        vegetationSelection = amidst.gtnh.vegetation.VegetationFilterPanel.Selection.empty();
+        vegetationHighlightDimension = null;
+        layerReloader.reloadBackgroundLayer();
+    }
+
+    public void clearVegetationHighlightOnDimensionChange(Dimension dimension) {
+        if (vegetationHighlightDimension != null && vegetationHighlightDimension != dimension) {
+            clearVegetationHighlight();
+        }
+    }
 	private final World world;
+	private final BiomeSelection biomeSelection;
+	private Dimension vegetationHighlightDimension;
+	private amidst.gtnh.vegetation.VegetationFilterPanel.Selection vegetationSelection =
+            amidst.gtnh.vegetation.VegetationFilterPanel.Selection.empty();
 	private final FragmentManager fragmentManager;
 	private final FragmentGraph graph;
 	private final FragmentGraphToScreenTranslator translator;
@@ -90,6 +128,7 @@ public class ViewerFacade {
 			BiomeSelection biomeSelection,
 			Actions actions) {
 		this.world = world;
+		this.biomeSelection = biomeSelection;
         this.settings = settings;
         amidst.gtnh.cache.MapStorage.enabled=settings.cacheMap.get();
 		this.fragmentManager = fragmentManager;
@@ -126,12 +165,14 @@ public class ViewerFacade {
         this.prospecting.setOnDoubleClick(journeyMapAutoImport::add);
 		this.fragmentQueueProcessor = fragmentManager.createQueueProcessor(
 				layerManager, settings.dimension, world.supportsGtnhWorldStateUpdates(),
-                world.getWorldOptions().getWorldType() == amidst.mojangapi.world.WorldType.RWG2_SMOOTH);
+                world.getWorldOptions().getWorldType().isRwg2());
 		this.layerReloader = layerManager.createLayerReloader(world);
 		this.progressEntryHolder = new AtomicReference<Entry<ProgressEntryType, Integer>>();
 
 		DebugWidget debugWidget = new DebugWidget(Widget.CornerAnchorPoint.BOTTOM_RIGHT, graph, fragmentManager, settings.showDebug, accelerationCounter, zoom);
 		BiomeWidget biomeWidget = new BiomeWidget(Widget.CornerAnchorPoint.NONE, biomeSelection, layerReloader, settings.biomeProfileSelection, world.getBiomeList());
+		biomeWidget.setVegetationAction(this::hasVegetationFilter,
+                () -> filterBiomesByVegetation(getComponent()));
 		BiomeToggleWidget biomeToggleWidget = new BiomeToggleWidget(Widget.CornerAnchorPoint.BOTTOM_RIGHT, biomeWidget, biomeSelection);
 		WorldOptions worldOptions = world.getWorldOptions();
 		List<Widget> widgets = Arrays.asList(

@@ -17,6 +17,8 @@ public enum WorldType {
 	AMPLIFIED    ("Amplified",    "amplified",    LegacySymbolicNames.FIELD_WORLD_TYPE_AMPLIFIED),
 	CUSTOMIZED   ("Customized",   "customized",   LegacySymbolicNames.FIELD_WORLD_TYPE_CUSTOMIZED),
     RWG2_SMOOTH  ("RWG2 Smooth",  "rwg2-smooth",  "RWG2_CONTINENTS"),
+    RWG2_SMOOTH_2_9_0 ("RWG2 Smooth (GTNH 2.9.0)", "rwg2-smooth-2.9.0", "RWG2_CONTINENTS"),
+    RWG2_SMOOTH_2_9_1 ("RWG2 Smooth (GTNH 2.9.1)", "rwg2-smooth-2.9.1", "RWG2_CONTINENTS"),
     RWG_ALPHA    ("RWG-Alpha",    "rwg-alpha",    "RWG");
 	// @formatter:on
 
@@ -92,6 +94,10 @@ public enum WorldType {
 
 	public String getSymbolicFieldName() {
 		return symbolicFieldName;
+	}
+
+	public boolean isRwg2() {
+		return "RWG2_CONTINENTS".equals(symbolicFieldName);
 	}
 
 	@Override

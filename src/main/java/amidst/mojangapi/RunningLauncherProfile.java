@@ -123,9 +123,6 @@ public class RunningLauncherProfile {
 
 	public synchronized World createWorld(WorldOptions worldOptions)
 			throws MinecraftInterfaceException {
-        if (isGtnh() && worldOptions.getWorldType() == WorldType.DEFAULT)
-            worldOptions = new WorldOptions(worldOptions.getWorldSeed(), worldTypes().get(0))
-                    .withGeneratorOptions(worldOptions.getGeneratorOptions());
 		return worldBuilder.from(minecraftInterface, worldOptions);
 	}
 

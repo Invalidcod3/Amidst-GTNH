@@ -52,7 +52,7 @@ final class BiomeWorkerServer implements Closeable {
         PoiContext(long seed, boolean simplex) {
             sampler = new Rwg2SurfaceBiomeSampler(seed, simplex);
             landmarks = sampler.structures();
-            dungeons = new VanillaDungeonPredictor("rwg2.config.ConfigRWG");
+            dungeons = new VanillaDungeonPredictor(Rwg2Version.settingsClass());
             backgroundCaves = sampler.prepareUnderground();
         }
     }
@@ -731,6 +731,7 @@ final class BiomeWorkerServer implements Closeable {
                 OverworldGenerator.hasSmooth()
                         ? OverworldGenerator.SMOOTH
                         : OverworldGenerator.ALPHA;
+        response.rwg2Version = OverworldGenerator.hasSmooth() ? Rwg2Version.auditedVersion() : null;
         response.providerClass = SurfaceBiomeSamplers.OVERWORLD_PROVIDER;
         response.chunkManagerClass =
                 OverworldGenerator.hasSmooth()
@@ -1549,7 +1550,8 @@ final class BiomeWorkerServer implements Closeable {
                 && ((Rwg2SurfaceBiomeSampler) sampler).prepareUnderground()) {
             if (request.poiJob == null) {
                 if (smoothStructurePredictor == null)
-                    smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+                    smoothStructurePredictor =
+                            new RwgStructurePredictor(Rwg2Version.settingsClass());
                 final List<RoguelikeDungeonPredictor.StructureDescriptor> nearby =
                         smoothStructurePredictor.predict(
                                 request.seed,
@@ -1589,9 +1591,9 @@ final class BiomeWorkerServer implements Closeable {
         }
         if (request.smoothDungeons == null) {
             if (smoothStructurePredictor == null)
-                smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+                smoothStructurePredictor = new RwgStructurePredictor(Rwg2Version.settingsClass());
             if (smoothDungeonPredictor == null)
-                smoothDungeonPredictor = new VanillaDungeonPredictor("rwg2.config.ConfigRWG");
+                smoothDungeonPredictor = new VanillaDungeonPredictor(Rwg2Version.settingsClass());
             List<RoguelikeDungeonPredictor.StructureDescriptor> nearby =
                     smoothStructurePredictor.predict(
                             request.seed,
@@ -1639,7 +1641,8 @@ final class BiomeWorkerServer implements Closeable {
         if (request.structureStage == 0) {
             if (request.selection().rwg()) {
                 if (smoothStructurePredictor == null)
-                    smoothStructurePredictor = new RwgStructurePredictor("rwg2.config.ConfigRWG");
+                    smoothStructurePredictor =
+                            new RwgStructurePredictor(Rwg2Version.settingsClass());
                 request.structureResults.addAll(
                         smoothStructurePredictor.predict(
                                 request.seed,
@@ -2037,6 +2040,7 @@ final class BiomeWorkerServer implements Closeable {
         private int protocol;
         private long seed;
         private String worldType;
+        private String rwg2Version;
         private String providerClass;
         private String chunkManagerClass;
         private List<BiomeDescriptor> biomes;

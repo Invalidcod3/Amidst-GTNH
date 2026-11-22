@@ -68,8 +68,8 @@ The Amidst release filename is controlled by
 `src/main/resources/amidst/metadata.properties`. A filename ending in `-vNN`
 or `-v0.3` produces the matching worker filename, such as
 `amidst-gtnh-worker-v0.3.jar`. `amidst.release.version` controls both Gradle
-project versions. For v0.4.0 use `amidst-gtnh-biomes-v0.4.0`, release version
-`0.4.0`, and display suffix `gtnh-biomes-0.4.0`. Keep the worker's `@Mod`
+project versions. For v0.4.2 use `amidst-gtnh-biomes-v0.4.2`, release version
+`0.4.2`, and display suffix `gtnh-biomes-0.4.2`. Keep the worker's `@Mod`
 version in sync with it.
 The Viewer retains the upstream Amidst version and appends the GTNH release
 version in `amidst.version.preReleaseSuffix`.
@@ -81,14 +81,14 @@ PowerShell 7:
 ./tools/Package-Release.ps1
 ```
 
-This creates `Amidst-GTNH-v0.4.0.zip`, its matching source ZIP,
+This creates `Amidst-GTNH-v0.4.2.zip`, its matching source ZIP,
 installation instructions, source manifest and SHA-256
 checksums under `build/`. It checks test reports, JAR versions and ZIP contents.
-Release notes are maintained in `docs/release-v0.4.0.md`. The source ZIP contains
+Release notes are maintained in `docs/release-v0.4.2.md`. The source ZIP contains
 the current working tree, including uncommitted, non-ignored files. Review
 `git status` before packaging. Existing package outputs are never overwritten.
 For later rebuilds choose a new descriptive suffix and update the current release
-notes. The JAR release version stays 0.4.0; the suffix identifies the archive only.
+notes. The JAR release version stays 0.4.2; the suffix identifies the archive only.
 `assembleRelease` first copies complete JARs to `build/release-staging/`, then atomically
 replaces the corresponding files in `build/release/`. It never streams bytes into a
 running release JAR. If Windows refuses replacement, close Viewer and rerun the task;
@@ -119,13 +119,15 @@ For reference-algorithm tests, supply RWG alpha 1.5.2 (or 1.5.3) and GregTech 5.
 .\gradlew.bat assembleRelease "-PrwgReferenceJar=C:/reference/RWG-alpha-1.5.2.jar" "-PgregtechReferenceJar=C:/reference/gregtech-5.09.54.133.jar"
 ```
 
-RWG2 2.0.6 can also be tested directly against an installed JAR. `mcpCsvDir`
+RWG2 2.0.6 or 2.0.9 can also be tested directly against an installed JAR. Run each
+version separately to cover both compatibility paths. GTNH 2.9.1's GregTech
+5.09.54.275 is also accepted by the reference tests. `mcpCsvDir`
 contains the RFG/MCP `fields.csv` and `methods.csv` files used only to adapt
 SRG names to the test Minecraft runtime (normally under the Gradle cache's
 `minecraft/de/oceanlabs/mcp/mcp_stable/12` directory):
 
 ```powershell
-.\gradlew.bat assembleRelease "-PrwgReferenceJar=C:/reference/RWG-alpha-1.5.3.jar" "-Prwg2ReferenceJar=C:/reference/rwg2-2.0.6.jar" "-PmcpCsvDir=C:/reference/mcp_stable/12"
+.\gradlew.bat assembleRelease "-PrwgReferenceJar=C:/reference/RWG-alpha-1.5.3.jar" "-Prwg2ReferenceJar=C:/reference/rwg2-2.0.9.jar" "-PmcpCsvDir=C:/reference/mcp_stable/12"
 ```
 
 Without these optional inputs their comparison tests are skipped. The files

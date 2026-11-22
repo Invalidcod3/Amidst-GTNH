@@ -50,6 +50,10 @@ public final class GtnhRoguelikeDungeonProducers {
         return new GtnhRoguelikeDungeonProducers();
     }
 
+    public List<amidst.gtnh.worker.GtnhBiomeDescriptor> vegetationBiomes() {
+        return minecraftInterface == null ? List.of() : minecraftInterface.vegetationBiomes();
+    }
+
     public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(
             Dimension dimension,
             int x,
@@ -556,11 +560,12 @@ public final class GtnhRoguelikeDungeonProducers {
                 Integer height = structure.y();
                 if ("TERRAIN_CANDIDATE".equals(structure.certainty())
                         || "RECORDED".equals(structure.certainty())) {
-                    label = I18n.text(type.getDisplayName());
+                    label = I18n.text(type.getDisplayName(structure));
                     if (!"LOOTGAMES_DUNGEON".equals(structure.kind())) {
                         if ("RWG2_LAVA_CAVE".equals(structure.subtype()))
                             label += " — " + I18n.text("Lava cave");
-                        else if ("RWG2_RIVER_CHAMBER".equals(structure.subtype()))
+                        else if ("RWG2_RIVER_CHAMBER".equals(structure.subtype())
+                                || type.isUnlitPool(structure))
                             label += " — " + I18n.text("River chamber");
                     }
                     if (height != null) label += " (Y " + height + ")";
@@ -582,7 +587,7 @@ public final class GtnhRoguelikeDungeonProducers {
                         new WorldIcon(
                                 CoordinatesInWorld.from(structure.x(), structure.z()),
                                 label,
-                                type.getIcon(),
+                                type.getIcon(structure),
                                 Dimension.OVERWORLD,
                                 false,
                                 height));
