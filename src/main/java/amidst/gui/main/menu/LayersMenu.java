@@ -57,6 +57,7 @@ public class LayersMenu {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void createMenu(Dimension selectedDimension) {
+        viewerFacade.clearVegetationHighlightOnDimensionChange(selectedDimension);
         var prospecting = viewerFacade.prospectingCatalog().stream()
                 .filter(d -> selectedDimension.prospectingKey().equals(d.key)).findFirst().orElse(null);
         if (prospecting != null && (selectedDimension.isAdditional() && !viewerFacade.hasBiomeLayer(selectedDimension)

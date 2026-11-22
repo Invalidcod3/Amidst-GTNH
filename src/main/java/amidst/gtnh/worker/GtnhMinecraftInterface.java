@@ -53,6 +53,8 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
 	private final Set<Integer> biomeIds;
 	private final Map<Integer, BiomeColor> runtimeBiomeColors;
 
+    public List<GtnhBiomeDescriptor> vegetationBiomes() { return workerInfo.biomes(); }
+
 	public static GtnhMinecraftInterface connect(String host, int port, String token)
 			throws MinecraftInterfaceException {
 		return new GtnhMinecraftInterface(new GtnhBiomeWorkerClient(host, port, token));
@@ -108,19 +110,33 @@ public final class GtnhMinecraftInterface implements MinecraftInterface, GtnhBio
     }
 
     public java.util.List<amidst.mojangapi.world.WorldType> worldTypes() {
+        var smooth = "2.0.6".equals(workerInfo.rwg2Version())
+                ? amidst.mojangapi.world.WorldType.RWG2_SMOOTH_2_9_0
+                : "2.0.9".equals(workerInfo.rwg2Version())
+                        ? amidst.mojangapi.world.WorldType.RWG2_SMOOTH_2_9_1
+                        : amidst.mojangapi.world.WorldType.RWG2_SMOOTH;
         return "RWG2_CONTINENTS".equals(workerInfo.worldType())
-                ? List.of(amidst.mojangapi.world.WorldType.RWG2_SMOOTH, amidst.mojangapi.world.WorldType.RWG_ALPHA)
+                ? List.of(smooth, amidst.mojangapi.world.WorldType.RWG_ALPHA)
                 : List.of(amidst.mojangapi.world.WorldType.RWG_ALPHA);
+    }
+
+    public amidst.mojangapi.world.WorldType resolveWorldType(amidst.mojangapi.world.WorldType requested)
+            throws MinecraftInterfaceException {
+        var available = worldTypes();
+        var type = requested == amidst.mojangapi.world.WorldType.DEFAULT
+                || (requested == amidst.mojangapi.world.WorldType.RWG2_SMOOTH && available.get(0).isRwg2())
+                ? available.get(0) : requested;
+        if (!available.contains(type)) throw new MinecraftInterfaceException("Unsupported GTNH world type: " + type);
+        return type;
     }
 
     public GtnhMinecraftInterface forWorldType(amidst.mojangapi.world.WorldType requested)
             throws MinecraftInterfaceException {
-        var type = requested == amidst.mojangapi.world.WorldType.DEFAULT ? worldTypes().get(0) : requested;
-        if (!worldTypes().contains(type)) throw new MinecraftInterfaceException("Unsupported GTNH world type: " + type);
+        var type = resolveWorldType(requested);
         return generator == type ? this : new GtnhMinecraftInterface(this, type);
     }
 
-    public boolean isRwg2() { return generator == amidst.mojangapi.world.WorldType.RWG2_SMOOTH; }
+    public boolean isRwg2() { return generator != null && generator.isRwg2(); }
 
 	@Override
 	public WorldAccessor createWorldAccessor(WorldOptions worldOptions) throws MinecraftInterfaceException {

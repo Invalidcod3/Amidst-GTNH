@@ -134,6 +134,9 @@ public class MainWindowDialogs {
 
 	public WorldType askForWorldType() {
 		String worldTypeSetting = (isGtnh() ? settings.gtnhWorldType : settings.worldType).get();
+        WorldType preferred = WorldType.findInstance(worldTypeSetting);
+        if (isGtnh() && preferred != null && preferred.isRwg2() && worldTypes().get(0).isRwg2())
+            return worldTypes().get(0);
 		if (worldTypeSetting.equals(WorldType.PROMPT_EACH_TIME) || !worldTypes().contains(WorldType.findInstance(worldTypeSetting))) {
 			return askForOptions("World Type", "Enter world type\n", worldTypes());
 		} else {

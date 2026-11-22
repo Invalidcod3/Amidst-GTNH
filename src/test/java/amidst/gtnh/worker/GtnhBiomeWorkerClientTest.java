@@ -32,6 +32,43 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class GtnhBiomeWorkerClientTest {
     @Test(timeout = 6000)
+    public void handshakeReadsOptionalRwg2BuildAndAcceptsOlderWorkers() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            for (String version : java.util.Arrays.asList(null, "2.0.6", "2.0.9")) {
+                try (ServerSocket server = new ServerSocket(0)) {
+                    server.setSoTimeout(2000);
+                    var client =
+                            new GtnhBiomeWorkerClient("127.0.0.1", server.getLocalPort(), "", 2000);
+                    Future<GtnhWorkerInfo> info = executor.submit(client::getWorkerInfo);
+                    try (Socket socket = server.accept()) {
+                        String request =
+                                new BufferedReader(
+                                                new InputStreamReader(
+                                                        socket.getInputStream(),
+                                                        StandardCharsets.UTF_8))
+                                        .readLine();
+                        assertTrue(request, request.contains("hello"));
+                        String response =
+                                version == null
+                                        ? HELLO_RESPONSE
+                                        : HELLO_RESPONSE.replace(
+                                                "\"worldType\":\"RWG\"",
+                                                "\"worldType\":\"RWG2_CONTINENTS\",\"rwg2Version\":\""
+                                                        + version
+                                                        + "\"");
+                        socket.getOutputStream()
+                                .write((response + "\n").getBytes(StandardCharsets.UTF_8));
+                        assertEquals(version, info.get(1, TimeUnit.SECONDS).rwg2Version());
+                    }
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test(timeout = 6000)
     public void slowTerrainDoesNotHoldTheStructurePermitAndSelectionReachesTheWorker()
             throws Exception {
         var setting = GtnhBiomeWorkerClient.class.getDeclaredField("samplingParallelism");

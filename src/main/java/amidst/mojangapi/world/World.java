@@ -260,6 +260,10 @@ public class World {
     public java.util.List<amidst.gtnh.prospecting.ProspectingData.DimensionInfo> prospectingCatalog() {
         return gtnhRoguelikeDungeonProducers.prospectingCatalog();
     }
+
+    public List<amidst.gtnh.worker.GtnhBiomeDescriptor> vegetationBiomes() {
+        return gtnhRoguelikeDungeonProducers.vegetationBiomes();
+    }
     public amidst.gtnh.prospecting.ProspectingData.Tile prospectFiltered(Dimension dimension, int x, int z,
             int width, int height, String mode, amidst.gtnh.prospecting.ProspectingData.QueryFilter filter) throws amidst.mojangapi.minecraftinterface.MinecraftInterfaceException {
         return gtnhRoguelikeDungeonProducers.prospectFiltered(dimension, x, z, width, height, mode, filter);

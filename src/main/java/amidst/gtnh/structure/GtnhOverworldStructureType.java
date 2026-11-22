@@ -49,6 +49,22 @@ public enum GtnhOverworldStructureType {
 	private final String displayName;
 	private final String menuIcon;
 	private final WorldIconImage icon;
+	private static final class UnlitPoolIcon {
+		static final WorldIconImage IMAGE = WorldIconImage.from(
+				ResourceLoader.getImage("/amidst/gui/main/icon/rwg2_twilight_dandelion.png"));
+	}
+
+	public boolean isUnlitPool(GtnhStructureDescriptor structure) {
+		return this == RWG2_TWILIGHT_PORTAL && "RWG2_RIVER_CHAMBER_UNLIT".equals(structure.subtype());
+	}
+
+	public String getDisplayName(GtnhStructureDescriptor structure) {
+		return isUnlitPool(structure) ? "Unlit Natural Twilight Pool" : displayName;
+	}
+
+	public WorldIconImage getIcon(GtnhStructureDescriptor structure) {
+		return isUnlitPool(structure) ? UnlitPoolIcon.IMAGE : icon;
+	}
 
 	GtnhOverworldStructureType(String wireName, String displayName, String menuIcon, int borderColor) {
 		this.wireName = wireName;

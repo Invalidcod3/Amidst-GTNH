@@ -29,7 +29,55 @@ public record GtnhWorkerInfo(
 		int deepDarkDimensionId,
 		int anubisDimensionId,
 		int horusDimensionId,
-		List<GtnhBiomeDescriptor> biomes) {
+		List<GtnhBiomeDescriptor> biomes,
+		String rwg2Version) {
+
+	public GtnhWorkerInfo(
+			int protocol,
+			long seed,
+			String worldType,
+			String providerClass,
+			String chunkManagerClass,
+			int twilightForestDimensionId,
+			int moonDimensionId,
+			int marsDimensionId,
+			int asteroidsDimensionId,
+			int ceresDimensionId,
+			int ioDimensionId,
+			int enceladusDimensionId,
+			int proteusDimensionId,
+			int plutoDimensionId,
+			int mehenBeltDimensionId,
+			int ross128bDimensionId,
+			int barnardaCDimensionId,
+			int deepDarkDimensionId,
+			int anubisDimensionId,
+			int horusDimensionId,
+			List<GtnhBiomeDescriptor> biomes) {
+		this(
+				protocol,
+				seed,
+				worldType,
+				providerClass,
+				chunkManagerClass,
+				twilightForestDimensionId,
+				moonDimensionId,
+				marsDimensionId,
+				asteroidsDimensionId,
+				ceresDimensionId,
+				ioDimensionId,
+				enceladusDimensionId,
+				proteusDimensionId,
+				plutoDimensionId,
+				mehenBeltDimensionId,
+				ross128bDimensionId,
+				barnardaCDimensionId,
+				deepDarkDimensionId,
+				anubisDimensionId,
+				horusDimensionId,
+				biomes,
+				null);
+	}
 
 	public GtnhWorkerInfo(
 			int protocol,

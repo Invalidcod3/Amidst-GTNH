@@ -7,6 +7,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import amidst.documentation.AmidstThread;
 import amidst.documentation.CalledOnlyBy;
@@ -42,6 +43,8 @@ public class BiomeWidget extends Widget {
 	private int biomeListHeight;
 	private boolean isInitialized = false;
 	private boolean isVisible = false;
+	private BooleanSupplier vegetationAvailable = () -> false;
+	private Runnable editVegetation;
 
 	private Rectangle innerBox = new Rectangle(0, 0, 1, 1);
 
@@ -75,6 +78,12 @@ public class BiomeWidget extends Widget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	public void toggleVisibility() {
 		isVisible = biomeSelection.toggleWidgetVisibility();
+	}
+
+	@CalledOnlyBy(AmidstThread.EDT)
+	public void setVegetationAction(BooleanSupplier available, Runnable edit) {
+		vegetationAvailable = available;
+		editVegetation = edit;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -118,9 +127,10 @@ public class BiomeWidget extends Widget {
 	@CalledOnlyBy(AmidstThread.EDT)
 	private void updateInnerBoxPositionAndSize() {
 		innerBox.x = getX() + 8;
-		innerBox.y = getY() + 30;
+		int extra = vegetationAvailable.getAsBoolean() ? 24 : 0;
+		innerBox.y = getY() + 30 + extra;
 		innerBox.width = getWidth() - 16;
-		innerBox.height = getHeight() - 58;
+		innerBox.height = getHeight() - 58 - extra;
 	}
 
 	@CalledOnlyBy(AmidstThread.EDT)
@@ -163,6 +173,10 @@ public class BiomeWidget extends Widget {
 	@Override
 	protected void doDraw(Graphics2D g2d) {
 		drawTextHighlightBiomes(g2d);
+		if (vegetationAvailable.getAsBoolean()) {
+			g2d.setColor(SELECT_BUTTON_COLOR);
+			g2d.drawString(amidst.i18n.I18n.text("Vegetation..."), getX() + 10, getY() + 43);
+		}
 		drawInnerBoxBackground(g2d);
 		drawInnerBoxBorder(g2d);
 		setClipToInnerBox(g2d);
@@ -267,7 +281,7 @@ public class BiomeWidget extends Widget {
 	private void drawSpecialButtons(Graphics2D g2d) {
 		g2d.setColor(SELECT_BUTTON_COLOR);
 		String activeText = biomeSelection.isHighlightMode() ? "Active" : "Inactive";
-		g2d.drawString(activeText, getX() + getWidth() - 65, getY() + 20);
+		g2d.drawString(amidst.i18n.I18n.text(activeText), getX() + getWidth() - 65, getY() + 20);
 		g2d.drawString(amidst.i18n.I18n.text("All  Special  None"), getX() + 120, getY() + getHeight() - 10);
 	}
 
@@ -316,6 +330,10 @@ public class BiomeWidget extends Widget {
 
 	@CalledOnlyBy(AmidstThread.EDT)
 	private boolean processClick(int mouseX, int mouseY) {
+		if (vegetationAvailable.getAsBoolean() && mouseY >= 27 && mouseY < 49) {
+			if (mouseX >= 8 && mouseX < 140) editVegetation.run();
+			return false;
+		}
 		if (isInBoundsOfInnerBox(mouseX, mouseY)) {
 			int id = (mouseY - (innerBox.y - getY()) - biomeListYOffset) / 16;
 			if (id < biomes.size()) {

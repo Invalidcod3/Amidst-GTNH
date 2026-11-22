@@ -1,9 +1,9 @@
 # Amidst GTNH Worker
 
-Standalone Forge 1.7.10 mod, release **0.4.0**, protocol **31**.
+Standalone Forge 1.7.10 mod, release **0.4.2**, protocol **31**.
 Use the matching Viewer and restart Minecraft after replacing the Worker.
-This formal release consolidates the internal RWG2 development builds;
-see the [release notes](../docs/release-v0.4.0.md) for compatibility and installation.
+This release keeps the Worker behavior and protocol from v0.4.0; the vegetation selector is implemented in the Viewer.
+See the [release notes](../docs/release-v0.4.2.md) for compatibility and installation.
 
 ## Responsibilities
 
@@ -30,7 +30,7 @@ Public core hooks exist only for injected Minecraft calls.
 - Real world access, mod initialization, general structures and resources use the game-thread queue.
   No preview query loads or generates world chunks. The game-tick budget is a soft limit:
   a running native callback cannot be safely preempted.
-- Audited RWG2 2.0.6 final-biome replay runs in exclusively leased background contexts.
+- Audited RWG2 2.0.6 / 2.0.9 final-biome replay runs in exclusively leased background contexts.
   Every context owns its manager, noise objects, RNGs, arrays and mutable caches.
   Registered callbacks are shared only after verification; unknown implementations retain the game-thread path.
 - Detached landmarks and supported cave masks use at most four independent POI workers.
@@ -45,6 +45,9 @@ Public core hooks exist only for injected Minecraft calls.
 ## Generator, structure and cache inputs
 
 Protocol 31 carries `generator`: `RWG2_CONTINENTS` (RWG2 Smooth) or `RWG` (RWG-Alpha).
+The optional hello field `rwg2Version` reports the audited native build (`2.0.6` or `2.0.9`).
+The Viewer labels Smooth as GTNH 2.9.0 or 2.9.1 accordingly; it cannot load a different native build through a request flag.
+Older workers without this field retain the generic Smooth label. See [version synchronization](../docs/reference/rwg2-version-sync.md).
 Omitted values retain the legacy RWG meaning. Ordinary `RWG2` is not treated as continents mode.
 Stored-biome evidence requires the same seed and world type; pure caches also distinguish noise mode.
 

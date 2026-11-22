@@ -2,6 +2,7 @@ package amidst.gui.main.viewer;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Collection;
 
 import amidst.documentation.ThreadSafe;
 
@@ -26,6 +27,13 @@ public class BiomeSelection {
 
 	public boolean isSelected(int id) {
 		return getSelected(id).get();
+	}
+
+	/** Apply vegetation matches as an ordinary selection; all picker controls remain unrestricted. */
+	public void highlightOnly(Collection<Integer> ids) {
+		deselectAll();
+		for (int id : ids) getSelected(id).set(true);
+		isHighlightMode.set(true);
 	}
 
 	private AtomicBoolean getSelected(int id) {
@@ -61,6 +69,10 @@ public class BiomeSelection {
 
 	public boolean isHighlightMode() {
 		return isHighlightMode.get();
+	}
+
+	public void clearHighlight() {
+		isHighlightMode.set(false);
 	}
 
 	private boolean toggle(AtomicBoolean atomicBoolean) {

@@ -336,7 +336,8 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
                     response.deepDarkDimensionId,
                     response.anubisDimensionId,
                     response.horusDimensionId,
-                    biomes);
+                    biomes,
+                    response.rwg2Version);
         } catch (IllegalArgumentException e) {
             throw new MinecraftInterfaceException("invalid GTNH worker handshake", e);
         }
@@ -1083,6 +1084,7 @@ public final class GtnhBiomeWorkerClient implements GtnhBiomeSource {
         private int protocol;
         private long seed;
         private String worldType;
+        private String rwg2Version;
         private String providerClass;
         private String chunkManagerClass;
         private int twilightForestDimensionId;

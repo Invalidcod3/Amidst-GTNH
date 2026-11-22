@@ -68,7 +68,7 @@ final class MapCacheIdentity {
         try {
             MessageDigest d = MessageDigest.getInstance("SHA-256");
             add(d, environment);
-            add(d, "map-v26:" + seed + ":" + OverworldGenerator.identity(generator));
+            add(d, "map-v27:" + seed + ":" + OverworldGenerator.identity(generator));
             WorldServer world = DimensionManager.getWorld(0);
             if (OverworldGenerator.matches(world, seed, generator)) {
                 add(d, world.getSaveHandler().getWorldDirectory().getCanonicalPath());

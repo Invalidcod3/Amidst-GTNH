@@ -94,12 +94,46 @@ public final class Rwg2Runtime {
 
     static WorldChunkManager manager(long seed, boolean simplex) throws Exception {
         Class<?> type = Class.forName(MANAGER);
-        verify(bytes(type), "21bc1a0084737671659624dd15044ee1032ec5ca26157bf688a115ac14b272db");
+        Rwg2Version version = Rwg2Version.current();
+        version.verify(type);
         Constructor<?> empty = type.getDeclaredConstructor();
         empty.setAccessible(true);
         Object manager = empty.newInstance();
-        // Reproduce 2.0.6's public constructor, using explicit immutable noise instances.
+        // Reproduce the audited constructor without NoiseSelector's saved-data writes.
         set(manager, "continental", true);
+        Object tainted = null;
+        if (version.modern) {
+            Class<?> config = Class.forName("rwg2.config.ContinentalConfig");
+            float multiplier = config.getField("biomeSizeMultiplier").getFloat(null);
+            float width = 1400f * multiplier;
+            set(manager, "climateWidth", width);
+            set(manager, "biomeWidth", 500f * multiplier);
+            set(manager, "climateWarpStrength", width * .8f);
+            Class<?> bands = Class.forName("rwg2.config.ClimateBandConfig");
+            if (bands.getField("enabled").getBoolean(null)) {
+                set(
+                        manager,
+                        "climateBands",
+                        Class.forName("rwg2.util.ClimateBands")
+                                .getConstructor(
+                                        double.class, double.class, double.class, double.class)
+                                .newInstance(
+                                        (double) bands.getField("snowWidth").getFloat(null),
+                                        (double) bands.getField("coldWidth").getFloat(null),
+                                        (double) bands.getField("hotWidth").getFloat(null),
+                                        (double) bands.getField("humidityWidth").getFloat(null)));
+                set(manager, "climateBandBlend", bands.getField("blendWidth").getFloat(null) * .5f);
+                set(manager, "climateWarpStrength", bands.getField("warpStrength").getFloat(null));
+                set(
+                        manager,
+                        "climateBandDriftStrength",
+                        bands.getField("driftStrength").getFloat(null));
+                set(manager, "climateBandDriftScale", bands.getField("driftScale").getFloat(null));
+            }
+            if (config.getField("perContinentTaintedLand").getBoolean(null))
+                tainted = Class.forName("rwg2.support.Support").getField("taintedLand").get(null);
+            set(manager, "perContinentTaintedLand", tainted != null);
+        }
         set(manager, "perlin", noise(seed, simplex));
         Class<?> cell = Class.forName("rwg2.util.CellNoise");
         Object distance = cell.getConstructor(long.class, short.class).newInstance(seed, (short) 0);
@@ -144,6 +178,7 @@ public final class Rwg2Runtime {
                         new ArrayList<>(
                                 (Collection<?>)
                                         climate.getClass().getField(placement).get(climate));
+                if (placement.equals("small") && tainted != null) lists[i].remove(tainted);
             }
             set(manager, placement + "Biomes", lists);
         }
@@ -205,7 +240,7 @@ public final class Rwg2Runtime {
         if (generatorCopy == null) {
             Class<?> original = Class.forName(GENERATOR.replace('/', '.'));
             byte[] code = bytes(original);
-            verify(code, "1517b2306a0db3c220a0afb63569c4b5e95658ba5c9d593c950ae273ca675d55");
+            Rwg2Version.current().verify(GENERATOR + ".class", code);
             byte[] detached = detach(code);
             generatorCopy =
                     new ClassLoader(original.getClassLoader()) {
@@ -238,6 +273,7 @@ public final class Rwg2Runtime {
                                 "generateTerrain",
                                 "carveMountainChainRivers",
                                 "carveRiverColumn",
+                                "hasOpenJunctionWater",
                                 "setRiverCaveBlock",
                                 "replaceBlocksForBiome",
                                 "markLavaCaveOpeningBiome",
@@ -246,7 +282,9 @@ public final class Rwg2Runtime {
                                 "clearActiveBiomes",
                                 "copyActiveBiomes"));
         for (MethodNode method : node.methods) {
-            if (!allowed.contains(method.name)) {
+            if (!allowed.contains(method.name)
+                    && !method.name.startsWith("lambda$carveMountainChainRivers$")
+                    && !method.name.startsWith("lambda$hasOpenJunctionWater$")) {
                 method.instructions.clear();
                 method.tryCatchBlocks.clear();
                 if (method.localVariables != null) method.localVariables.clear();
@@ -346,8 +384,16 @@ public final class Rwg2Runtime {
                             + ", biome="
                             + biomeCalls);
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-        node.accept(new RemappingClassAdapter(writer, new SimpleRemapper(GENERATOR, COPY)));
+        Map<String, String> remap = new HashMap<>();
+        remap.put(GENERATOR, COPY);
+        remap.put(GENERATOR + "$RiverCarver", "amidst/gtnh/worker/Rwg2Runtime$RiverCarver");
+        node.accept(new RemappingClassAdapter(writer, new SimpleRemapper(remap)));
         return writer.toByteArray();
+    }
+
+    /** Public bridge for the detached 2.0.9 generator's private lambda interface. */
+    public interface RiverCarver {
+        void carve(int x, int z, int y);
     }
 
     static Field field(Class<?> type, String name) throws NoSuchFieldException {
@@ -377,10 +423,14 @@ public final class Rwg2Runtime {
     }
 
     static void verify(byte[] bytes, String expected) throws Exception {
+        if (expected == null || !expected.equals(hash(bytes)))
+            throw new IllegalStateException("Bytecode does not match the selected audited build");
+    }
+
+    static String hash(byte[] bytes) throws Exception {
         StringBuilder actual = new StringBuilder();
         for (byte b : MessageDigest.getInstance("SHA-256").digest(bytes))
             actual.append(String.format("%02x", b & 255));
-        if (!expected.equals(actual.toString()))
-            throw new IllegalStateException("RWG2 bytecode is not the supported 2.0.6 build");
+        return actual.toString();
     }
 }

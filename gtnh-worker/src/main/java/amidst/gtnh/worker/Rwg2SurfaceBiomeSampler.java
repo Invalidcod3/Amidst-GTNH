@@ -11,9 +11,7 @@ import net.minecraft.world.biome.WorldChunkManager;
 import java.lang.reflect.*;
 import java.util.*;
 
-/**
- * Detached replay of RWG2 2.0.6's final biome assignment, including rivers and lava cave markers.
- */
+/** Detached replay of audited RWG2 builds, including rivers and lava cave markers. */
 final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
     private final Object generator;
     private final WorldChunkManager manager;
@@ -28,6 +26,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
     private final Object perlin, cell;
     private final Method terrain, noise, carve, replace, marker, getBiome, mapGen;
     private final boolean fastTerrain;
+    private final boolean modern;
     private final Field baseBiome;
     private final Rwg2BiomeCache biomeSamples;
     private final Field lavaCaveMarker;
@@ -71,6 +70,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
         this.fastTerrain = optimized;
         this.seed = seed;
         try {
+            modern = Rwg2Version.current().modern;
             manager = Rwg2Runtime.manager(seed, simplex);
             biomeSamples = new Rwg2BiomeCache(manager, cacheBiomeSamples, optimized);
             oceanShortcut = cacheBiomeSamples;
@@ -131,12 +131,18 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
                             int.class,
                             realistic.getClass());
             carve =
-                    method(
-                            "carveMountainChainRivers",
-                            int.class,
-                            int.class,
-                            Block[].class,
-                            byte[].class);
+                    modern
+                            ? method(
+                                    "carveMountainChainRivers",
+                                    int.class,
+                                    int.class,
+                                    Rwg2Runtime.RiverCarver.class)
+                            : method(
+                                    "carveMountainChainRivers",
+                                    int.class,
+                                    int.class,
+                                    Block[].class,
+                                    byte[].class);
             replace =
                     method(
                             "replaceBlocksForBiome",
@@ -150,7 +156,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
             marker = method("markLavaCaveOpeningBiome", int.class, int.class, manager.getClass());
         } catch (Exception e) {
             throw new IllegalStateException(
-                    "Cannot initialize RWG2 Smooth (requires RWG2 2.0.6)", e);
+                    "Cannot initialize RWG2 Smooth (requires audited RWG2 2.0.6 or 2.0.9)", e);
         }
     }
 
@@ -181,9 +187,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
                 Class<?> lava = Class.forName("rwg2.map.LavaCaveLandmark");
                 volcanoClass =
                         Class.forName("rwg2.biomes.realistic.ocean.RealisticBiomeIslandVolcano");
-                Rwg2Runtime.verify(
-                        Rwg2Runtime.bytes(lava),
-                        "f24532b0c274d79be5a3f905736eaa6af08e86b1079a6ce6d1c93ad7dab4736a");
+                Rwg2Version.current().verify(lava);
                 Rwg2Runtime.verify(
                         Rwg2Runtime.bytes(volcanoClass),
                         "c59524f7e1d926522617d5e595c72649ed7dc5a5ee470d5e2d73191708ddca8a");
@@ -206,7 +210,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
                                 manager.getClass(),
                                 Class.forName("rwg2.util.NoiseGenerator"),
                                 cell.getClass());
-                caves = RwgSpawnCaves.create(previewWorld, "rwg2.config.ConfigRWG");
+                caves = RwgSpawnCaves.create(previewWorld, Rwg2Version.settingsClass());
             }
             return caves.supportsBackground();
         } catch (Exception e) {
@@ -218,6 +222,18 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
         Method m = generator.getClass().getDeclaredMethod(name, parameters);
         m.setAccessible(true);
         return m;
+    }
+
+    synchronized boolean hasOpenJunctionWater(int x, int z) {
+        Rwg2BiomeCache previous = Rwg2Runtime.sampling(biomeSamples);
+        try {
+            return (Boolean)
+                    method("hasOpenJunctionWater", int.class, int.class).invoke(generator, x, z);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot check RWG2 junction terrain", e);
+        } finally {
+            Rwg2Runtime.sampling(previous);
+        }
     }
 
     private synchronized Tile tile(int x, int z) {
@@ -258,7 +274,15 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
                 Rwg2TerrainFill.fill(blocks, columns, Blocks.stone, Blocks.water, Blocks.air);
             } else terrain.invoke(generator, manager, cx, cz, blocks, metadata, realistic);
             phaseStart = recordPhase(1, phaseStart);
-            carve.invoke(generator, cx, cz, blocks, metadata);
+            if (modern) {
+                Rwg2Runtime.RiverCarver writer =
+                        (localX, localZ, y) -> {
+                            int index = (localX * 16 + localZ) * 256 + y;
+                            blocks[index] = y <= 62 ? Blocks.water : Blocks.air;
+                            metadata[index] = 0;
+                        };
+                carve.invoke(generator, cx, cz, writer);
+            } else carve.invoke(generator, cx, cz, blocks, metadata);
             phaseStart = recordPhase(2, phaseStart);
             for (int i = 0; i < 256; i++) {
                 if (mapGenBiomes[i] > 0) {
@@ -401,7 +425,7 @@ final class Rwg2SurfaceBiomeSampler implements SurfaceBiomeSampler {
 
     @Override
     public String predictionStats() {
-        return "rwg2-2.0.6-detached-surface-replay; blendHits="
+        return "rwg2-audited-detached-surface-replay; blendHits="
                 + biomeSamples.hits
                 + "; blendMisses="
                 + biomeSamples.misses
